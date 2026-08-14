@@ -30,18 +30,27 @@ CLINICAL_VOCAB = (
 
 @pytest.fixture
 def big_corpus(monkeypatch):
-    """Populate the in-memory chunk store with a realistically sized corpus."""
-    from app import db
+    """Force retrieval down the TF-IDF path over a realistically sized corpus.
+
+    Patching app.db._chunks is not enough: when a real database is attached (as in
+    CI) list_chunks() reads Postgres, which holds only the three seed rows, so the
+    measured work collapsed to a few milliseconds and the test measured nothing.
+    rag imports both names directly, so they are patched on rag itself -- and
+    is_db_available is forced False to keep this on the branch under test.
+    """
+    from app import rag
 
     rng = random.Random(1337)
-    corpus = {}
-    for i in range(CORPUS_SIZE):
-        text = " ".join(rng.choice(CLINICAL_VOCAB) for _ in range(80))
-        corpus[f"perf_{i}"] = {
+    corpus = [
+        {
             "id": f"perf_{i}", "doc_id": "perf_doc", "doc_title": "Perf Corpus",
-            "page": 1 + i // 50, "text": text,
+            "page": 1 + i // 50,
+            "text": " ".join(rng.choice(CLINICAL_VOCAB) for _ in range(80)),
         }
-    monkeypatch.setattr(db, "_chunks", corpus)
+        for i in range(CORPUS_SIZE)
+    ]
+    monkeypatch.setattr(rag, "is_db_available", lambda: False)
+    monkeypatch.setattr(rag, "list_chunks", lambda: corpus)
     return corpus
 
 
