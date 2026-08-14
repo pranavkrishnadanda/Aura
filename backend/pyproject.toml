@@ -34,6 +34,11 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Make `app` importable regardless of how pytest is invoked. `python -m pytest`
+# puts the CWD on sys.path, but the `pytest` console script does not -- so the
+# suite passed locally and every module failed to import under `uv run pytest`
+# in CI with ModuleNotFoundError: No module named 'app'.
+pythonpath = ["."]
 asyncio_mode = "auto"
 # No single test should take this long; a hang in the SSE paths must fail loudly
 # rather than block the run forever.

@@ -4,7 +4,7 @@ import { Citation } from "@/lib/types";
 export default function CitationPanel({ citation, onClose }: { citation: Citation | null; onClose: () => void }) {
   if (!citation) return null;
   return (
-    <div className="w-[380px] shrink-0 bg-white border-l border-slate-200 flex flex-col">
+    <div data-testid="citation-panel" className="w-[380px] shrink-0 bg-white border-l border-slate-200 flex flex-col">
       <div className="h-12 px-4 border-b border-slate-200 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-md bg-teal-600 px-1.5 text-xs font-medium text-white">[{citation.idx}]</span>

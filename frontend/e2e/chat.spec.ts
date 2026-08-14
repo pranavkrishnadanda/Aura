@@ -19,13 +19,18 @@ test.describe("clinical chat", () => {
 
     // The inline [1] marker is clickable and opens the verbatim source.
     await page.getByRole("button", { name: "Open citation 1" }).click();
-    await expect(page.getByText("Evidence")).toBeVisible();
-    await expect(page.getByText(SEED_CITATION.doc_title)).toBeVisible();
-    await expect(page.getByText(`p.${SEED_CITATION.page}`).first()).toBeVisible();
-    await expect(page.getByText("Verified chunk — rendered verbatim. No LLM rewrite.")).toBeVisible();
 
-    await page.getByRole("button", { name: "Close" }).click();
-    await expect(page.getByText("Evidence")).toHaveCount(0);
+    // Scope to the panel: the document title also appears on the citation chip
+    // under the message, so an unscoped lookup matches two elements.
+    const panel = page.getByTestId("citation-panel");
+    await expect(panel).toBeVisible();
+    await expect(panel.getByText(SEED_CITATION.doc_title)).toBeVisible();
+    await expect(panel.getByText(`p.${SEED_CITATION.page}`)).toBeVisible();
+    await expect(panel.getByText("Verified chunk — rendered verbatim. No LLM rewrite.")).toBeVisible();
+    await expect(panel.getByText(SEED_CITATION.chunk_text)).toBeVisible();
+
+    await panel.getByRole("button", { name: "Close" }).click();
+    await expect(page.getByTestId("citation-panel")).toHaveCount(0);
   });
 
   test("Enter sends, Shift+Enter does not", async ({ page }) => {
@@ -46,10 +51,16 @@ test.describe("clinical chat", () => {
     await page.route("**/api/v1/chat/stream", (route) => route.abort("failed"));
     await page.goto("/");
 
-    await page.getByPlaceholder(/Ask a clinical question/i).fill("does this recover?");
+    const input = page.getByPlaceholder(/Ask a clinical question/i);
+    await input.fill("does this recover?");
     await page.getByRole("button", { name: "Send" }).click();
 
     await expect(page.getByText(/Error:/)).toBeVisible();
+
+    // Send is also disabled on empty input, so type again before asserting -- it
+    // is the `streaming` flag being stuck that this guards, and only a non-empty
+    // input isolates that from the emptiness rule.
+    await input.fill("second attempt");
     await expect(page.getByRole("button", { name: "Send" })).toBeEnabled();
   });
 
