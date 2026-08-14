@@ -53,6 +53,13 @@ jobs:
           "
       - name: Test
         working-directory: backend
+        env:
+          # Use coverage's sys.monitoring backend (Python 3.12+) instead of the
+          # legacy settrace tracer. The old tracer fires per line of every module,
+          # which made multipart parsing of the oversized-upload test's body take
+          # 70s instead of 1s -- it timed out only in this job, because it is the
+          # only one running under --cov.
+          COVERAGE_CORE: sysmon
         # --durations surfaces slow tests, so a CI-only timeout leaves evidence.
         run: uv run pytest -q --cov=app --cov-report=term-missing --durations=10
 
