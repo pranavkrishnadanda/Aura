@@ -12,6 +12,11 @@ Zero-cost RAG chat with streaming, citations, and hard refusal.
 
 > GitHub Pages cannot run Python/Databases — this split is required.
 
+### Deployment
+
+Step-by-step free-tier deploy (Supabase + Render + Vercel), including the
+verification commands and the gotchas: **[DEPLOY.md](DEPLOY.md)**.
+
 ### Deployment Workflow
 1. **Local dev:** `docker compose up` — runs Next.js, FastAPI, local Postgres+pgvector
 2. **Push to GitHub:** single repo `aura/` with `frontend/` and `backend/` folders

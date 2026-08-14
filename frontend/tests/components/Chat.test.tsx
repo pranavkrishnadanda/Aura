@@ -377,3 +377,71 @@ describe("Chat - switching threads", () => {
     expect(await screen.findByText("ready")).toBeInTheDocument();
   });
 });
+
+describe("cold-start feedback", () => {
+  it("explains the free-tier wake-up when the first byte is slow", async () => {
+    // Free-tier hosting sleeps when idle, so the first request can take ~30s.
+    // Without this the UI shows only "Receiving tokens…" and reads as broken.
+    vi.useFakeTimers();
+    try {
+      // A response whose body never produces a chunk, i.e. still cold-starting.
+      const hanging = new ReadableStream<Uint8Array>({ start() {} });
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (url: string) => {
+          if (String(url).includes("/chat/stream")) {
+            return {
+              ok: true,
+              status: 200,
+              body: hanging,
+              headers: new Headers({ "Content-Type": "text/event-stream" }),
+            } as unknown as Response;
+          }
+          return { ok: true, status: 200, json: async () => [] } as unknown as Response;
+        })
+      );
+
+      render(<Chat />);
+      const input = screen.getByPlaceholderText(PLACEHOLDER);
+      fireEvent.change(input, { target: { value: "first-line therapy?" } });
+      fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+      // Nothing alarming before the threshold.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1000);
+      });
+      expect(screen.queryByText(/Waking the server/i)).not.toBeInTheDocument();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3000);
+      });
+      expect(screen.getByText(/Waking the server/i)).toBeInTheDocument();
+      expect(screen.getByText(/free\s*tier that sleeps when idle/i)).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not show the wake-up notice when tokens arrive promptly", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (String(url).includes("/chat/stream")) {
+          return sseResponse([
+            frame("meta", { citations: [], is_refusal: false, thread_id: "t" }),
+            frame("token", { token: "Answer" }),
+            frame("done", { full_text: "Answer", citations: [] }),
+          ]);
+        }
+        return { ok: true, status: 200, json: async () => [] } as unknown as Response;
+      })
+    );
+
+    render(<Chat />);
+    fireEvent.change(screen.getByPlaceholderText(PLACEHOLDER), { target: { value: "hi" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    await waitFor(() => expect(screen.getByText("Answer")).toBeInTheDocument());
+    expect(screen.queryByText(/Waking the server/i)).not.toBeInTheDocument();
+  });
+});

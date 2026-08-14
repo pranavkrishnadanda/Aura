@@ -73,7 +73,16 @@ def _init_engine():
         _engine = create_engine(
             _normalize_db_url(settings.DATABASE_URL),
             pool_size=10, max_overflow=20, pool_pre_ping=True, pool_timeout=10,
-            connect_args={"connect_timeout": 5}
+            connect_args={
+                "connect_timeout": 5,
+                # psycopg3 prepares statements after a few executions, which breaks
+                # behind a transaction-mode pooler (Supabase port 6543, pgbouncer):
+                # the server-side statement vanishes between transactions and the
+                # next execution fails with "prepared statement already exists".
+                # Disabling it costs a little planning time and makes any pooler
+                # configuration work.
+                "prepare_threshold": None,
+            },
         )
         with _engine.connect() as conn:
             conn.execute(text("SELECT 1"))

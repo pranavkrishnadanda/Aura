@@ -60,6 +60,11 @@ export default function Chat() {
   const [currentCitations, setCurrentCitations] = useState<Citation[]>([]);
   const scroller = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  // Free-tier hosting sleeps after ~15 minutes idle, so the first request of the
+  // day spends ~30s waking the container before a single token arrives. Without
+  // saying so the UI just sits on "streaming…" and reads as broken.
+  const [waking, setWaking] = useState(false);
+  const wakeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // This browser's own session thread, used by the "Default session" entry.
   const [sessionThread, setSessionThread] = useState("default");
 
@@ -125,10 +130,19 @@ export default function Chat() {
 
     const ctrl = new AbortController();
     abortRef.current = ctrl;
+    // Anything past a few seconds without a first byte means the host is almost
+    // certainly cold-starting, so explain that rather than showing a silent spinner.
+    wakeTimer.current = setTimeout(() => setWaking(true), 3000);
+    const stopWaking = () => {
+      if (wakeTimer.current) clearTimeout(wakeTimer.current);
+      wakeTimer.current = null;
+      setWaking(false);
+    };
     try {
       await streamChat(q, threadId, {
-        onMeta: (cits) => { metaCites = cits as Citation[]; setCurrentCitations(cits as Citation[]); },
+        onMeta: (cits) => { stopWaking(); metaCites = cits as Citation[]; setCurrentCitations(cits as Citation[]); },
         onToken: (tok) => {
+          stopWaking();
           acc += tok;
           setMessages((prev) => { const copy = [...prev]; copy[copy.length - 1] = { role: "assistant", content: acc, citations: metaCites }; return copy; });
         },
@@ -142,6 +156,7 @@ export default function Chat() {
     } finally {
       // Always clear, on every path. Previously this lived only inside onDone and
       // onError, so any throw left the composer disabled permanently.
+      stopWaking();
       if (abortRef.current === ctrl) abortRef.current = null;
       setStreaming(false);
     }
@@ -248,7 +263,14 @@ export default function Chat() {
               </div>
             ))}
 
-            {streaming && <div className="text-xs font-mono text-slate-500">Receiving tokens…</div>}
+            {streaming && !waking && <div className="text-xs font-mono text-slate-500">Receiving tokens…</div>}
+            {waking && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-900">
+                <span className="font-medium">Waking the server…</span> This deployment runs on a free
+                tier that sleeps when idle, so the first request can take around 30 seconds. Later
+                questions respond immediately.
+              </div>
+            )}
           </div>
         </div>
 
