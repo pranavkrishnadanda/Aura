@@ -16,8 +16,11 @@ _jobs: dict = {}  # job_id -> {status, doc_title, pages, chunks, error, created_
 _MAX_JOBS = 200  # bound the dict so a long-running instance cannot leak memory
 
 def chunk_text(text: str, size: int = None, overlap: int = None) -> List[str]:
-    size = size or settings.CHUNK_SIZE
-    overlap = overlap or settings.CHUNK_OVERLAP
+    # `x or default` treats an explicit 0 as "not supplied", so a caller asking for
+    # overlap=0 (non-overlapping chunks) silently got the configured default
+    # instead. Distinguish "omitted" from "zero".
+    size = settings.CHUNK_SIZE if size is None else size
+    overlap = settings.CHUNK_OVERLAP if overlap is None else overlap
     # word split keeps the $0 demo simple and deterministic
     size = max(1, size)
     # An overlap >= size makes the stride <= 0 and the loop below never terminates,

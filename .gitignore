@@ -11,3 +11,9 @@ pgdata
 .vscode
 *.egg-info
 tsconfig.tsbuildinfo
+coverage
+.coverage
+htmlcov
+playwright-report
+test-results
+.playwright

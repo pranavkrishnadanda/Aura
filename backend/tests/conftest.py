@@ -24,13 +24,20 @@ def reset_sse_app_status():
 def reset_inmemory_stores():
     """Isolate the in-memory fallback stores so tests cannot leak state into each other.
 
-    Threads, messages and the ingest job table are module-level dicts. Without this,
-    a thread created by one test is visible to the next, which hides real isolation
-    bugs and makes failures order-dependent.
+    Threads, messages, chunks and the ingest job table are all module-level dicts.
+    Without this, a thread created by one test is visible to the next, which hides
+    real isolation bugs and makes failures order-dependent.
+
+    The chunk store is restored to the seeded baseline rather than emptied: the
+    retrieval tests rely on the SEED_CHUNKS clinical guidelines being present, while
+    the ingest tests add to it. Leaving those additions behind made corpus-size
+    assertions pass alone and fail in a full run.
     """
     from app import db, ingest
 
     db._threads.clear()
     db._messages.clear()
     ingest._jobs.clear()
+    db._chunks.clear()
+    db._chunks.update({c["id"]: dict(c) for c in db.SEED_CHUNKS})
     yield

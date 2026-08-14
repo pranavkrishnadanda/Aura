@@ -60,6 +60,17 @@ This is a portfolio/demo build, not a production clinical system. Known limits:
 - Render's free tier sleeps after 15 minutes idle, so the first request takes
   ~30s. That is incompatible with an uptime guarantee; use a paid tier for one.
 
+### Tests
+
+Unit, integration, E2E, real-time SSE, UI and performance suites across both
+stacks. See [TESTING.md](TESTING.md).
+
+```bash
+cd backend && uv run pytest -q      # backend, all layers
+cd frontend && npm test            # unit + component
+cd frontend && npm run test:e2e    # real browser (needs: npx playwright install chromium)
+```
+
 ### Load Test
 ```bash
 k6 run backend/tests/load_sse_k6.js

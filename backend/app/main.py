@@ -90,8 +90,11 @@ def ready(response: Response):
 @app.post("/api/v1/threads")
 @limiter.limit(settings.RATE_LIMIT_AUTH)
 def post_thread(request: Request, body: ThreadCreate, user=Depends(get_current_user)):
-    if len(body.title or "") > 200:
-        raise HTTPException(400, "Title too long")
+    # Length is enforced by ThreadCreate.title's max_length, which rejects with 422
+    # before this handler runs. A manual `if len(title) > 200: raise 400` check
+    # lived here and was unreachable dead code promising a status the API never
+    # returned -- the same mismatch that made MAX_MESSAGE_LENGTH dead for
+    # ChatRequest.message.
     return create_thread(body.title or "New consultation", user_id=user["user_id"])
 
 def _assert_thread_access(thread_id: str, user: dict) -> dict:

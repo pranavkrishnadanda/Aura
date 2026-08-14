@@ -27,4 +27,26 @@ dependencies = [
 [dependency-groups]
 dev = [
     "pytest==8.2.0",
+    "pytest-asyncio==0.23.7",
+    "pytest-cov==5.0.0",
+    "pytest-timeout==2.3.1",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+# No single test should take this long; a hang in the SSE paths must fail loudly
+# rather than block the run forever.
+timeout = 60
+markers = [
+    "unit: pure logic, no I/O",
+    "integration: crosses a component boundary (API, DB, ingest)",
+    "e2e: full user-visible flow",
+    "realtime: SSE streaming semantics",
+    "performance: latency and event-loop budgets",
+    "slow: excluded from the default fast run",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning:httpx.*",
+    "ignore::DeprecationWarning:pydantic.*",
 ]
