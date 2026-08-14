@@ -67,6 +67,10 @@ export default function AdminUpload({ compact }: { compact?: boolean }) {
         setStatus(`${job.doc_title} · ${job.pages} pages · ${job.chunks} chunks · ${embedded}`);
         return;
       }
+      if (job.status === "partial") {
+        setStatus(`Partially indexed: ${job.error}. Some of this document is not searchable.`);
+        return;
+      }
       if (job.status === "failed") {
         setStatus(`Ingest failed: ${job.error || "unknown error"}`);
         return;

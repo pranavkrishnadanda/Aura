@@ -307,7 +307,8 @@ def get_chunk(cid: str):
             _db_op_failed("get_chunk", e)
     return _chunks.get(cid)
 
-def upsert_chunks(docs: List[dict]):
+def upsert_chunks(docs: List[dict]) -> bool:
+    """Persist chunks. Returns True if they reached the database."""
     if _db_available and _SessionLocal:
         try:
             with _SessionLocal() as s:
@@ -321,20 +322,30 @@ def upsert_chunks(docs: List[dict]):
                     else:
                         s.add(Chunk(id=d["id"], doc_id=d["doc_id"], doc_title=d["doc_title"], page=d["page"], text=d["text"]))
                 s.commit()
-                return
+                return True
         except Exception as e:
             _db_op_failed("upsert_chunks", e)
+            return False
     for d in docs:
         _chunks[d["id"]] = d
+    return True
 
-def upsert_chunk_with_embedding(chunk: dict, embedding: List[float]):
-    """Insert chunk with vector (pgvector); fallback stores without vector"""
+def upsert_chunk_with_embedding(chunk: dict, embedding: List[float]) -> bool:
+    """Insert a chunk with its vector. Returns True if it reached the database.
+
+    The in-memory fallback below is unreachable by retrieval whenever the DB is up,
+    because list_chunks() returns DB rows and never consults _chunks in that state.
+    A failure here therefore means the chunk is lost, so the caller is told rather
+    than left to report the ingest as successful.
+    """
     if _db_available and _SessionLocal:
         try:
             with _SessionLocal() as s:
-                s.add(Chunk(id=chunk["id"], doc_id=chunk["doc_id"], doc_title=chunk["doc_title"], page=chunk["page"], text=chunk["text"], embedding=embedding))
+                s.merge(Chunk(id=chunk["id"], doc_id=chunk["doc_id"], doc_title=chunk["doc_title"], page=chunk["page"], text=chunk["text"], embedding=embedding))
                 s.commit()
-                return
+                return True
         except Exception as e:
             _db_op_failed("upsert_chunk_with_embedding", e)
+            return False
     _chunks[chunk["id"]] = chunk
+    return True

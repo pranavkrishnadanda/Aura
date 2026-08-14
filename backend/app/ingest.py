@@ -120,25 +120,37 @@ def ingest_pdf_sync(file_bytes: bytes, filename: str, job_id: str = None):
         texts = [c["text"] for c in new_chunks]
         vectors = _embed_texts(texts)
         embedded = 0
+        stored = 0
         plain = []
         for chunk, vec in zip(new_chunks, vectors):
             if vec:
-                upsert_chunk_with_embedding(chunk, vec)
-                embedded += 1
+                if upsert_chunk_with_embedding(chunk, vec):
+                    embedded += 1
+                    stored += 1
             else:
                 plain.append(chunk)
         if plain:
             # One batched write rather than a session + commit per chunk.
-            upsert_chunks(plain)
+            if upsert_chunks(plain):
+                stored += len(plain)
         result = {
             "doc_id": doc_id,
             "doc_title": doc_title,
             "pages": page_count,
             "chunks": len(new_chunks),
+            "stored": stored,
             "embedded": embedded,
         }
         if job_id:
-            _jobs[job_id].update({"status": "completed", **result})
+            # Only claim success if the chunks actually persisted. Reporting
+            # "completed" after every write failed told the user their document was
+            # indexed when retrieval could never see it.
+            if stored == len(new_chunks):
+                _jobs[job_id].update({"status": "completed", **result})
+            elif stored:
+                _jobs[job_id].update({"status": "partial", "error": f"only {stored} of {len(new_chunks)} chunks were stored", **result})
+            else:
+                _jobs[job_id].update({"status": "failed", "error": "no chunks could be stored", **result})
         logger.info("ingest complete: %s pages=%d chunks=%d embedded=%d",
                     doc_title, page_count, len(new_chunks), embedded)
         return result
