@@ -143,7 +143,54 @@ def db_error() -> Optional[str]:
 def storage_mode() -> str:
     return "postgres" if _db_available else "in-memory (ephemeral)"
 
+def chunk_embedding_stats() -> dict:
+    """How much of the corpus is actually reachable by vector search.
+
+    The pgvector query filters `WHERE embedding IS NOT NULL`, so any chunk stored
+    without an embedding -- including the seeded clinical guidelines, which are
+    inserted with no embedding at all -- becomes invisible to retrieval the moment
+    a single other chunk has one. A mixed corpus therefore silently answers from a
+    subset, which is why this is reported rather than left to be discovered.
+    """
+    if not (_db_available and _SessionLocal):
+        return {"total": len(_chunks), "embedded": 0, "unretrievable_in_vector_mode": len(_chunks)}
+    try:
+        with _SessionLocal() as s:
+            total = s.query(Chunk).count()
+            embedded = s.query(Chunk).filter(Chunk.embedding.isnot(None)).count()
+        return {"total": total, "embedded": embedded,
+                "unretrievable_in_vector_mode": total - embedded}
+    except Exception as e:
+        _db_op_failed("chunk_embedding_stats", e)
+        return {"total": 0, "embedded": 0, "unretrievable_in_vector_mode": 0}
+
+_last_reconnect_attempt = 0.0
+_RECONNECT_INTERVAL = 30.0
+
+
+def _maybe_reconnect() -> None:
+    """Retry engine init if the database was down at import.
+
+    _db_available was latched once at module import and never re-evaluated, so a
+    database that was briefly unreachable during boot -- entirely normal when the
+    API and Postgres start together, or on a Render free-tier cold start -- left
+    the process permanently in ephemeral in-memory mode until someone restarted it.
+    """
+    global _last_reconnect_attempt
+    if _db_available:
+        return
+    now = time.time()
+    if now - _last_reconnect_attempt < _RECONNECT_INTERVAL:
+        return
+    _last_reconnect_attempt = now
+    logger.info("retrying database connection")
+    _init_engine()
+    if _db_available:
+        logger.info("database recovered; leaving in-memory fallback mode")
+
+
 def try_pg_connection() -> bool:
+    _maybe_reconnect()
     if not _db_available or not _engine:
         return False
     try:

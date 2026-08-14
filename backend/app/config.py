@@ -6,7 +6,10 @@ class Settings(BaseSettings):
     GROQ_API_KEY: str = ""
     GEMINI_API_KEY: str = ""
     GROQ_MODEL: str = "llama3-8b-8192"
-    GEMINI_MODEL: str = "gemini-1.5-flash"
+    # gemini-1.5-flash has been retired and is absent from list_models, so every
+    # generateContent call 404s. The "-latest" alias is used so this does not rot
+    # again the next time a specific version is withdrawn.
+    GEMINI_MODEL: str = "gemini-flash-latest"
     # text-embedding-004 has been retired from the v1beta endpoint and now 404s on
     # embedContent; gemini-embedding-001 is its replacement.
     GEMINI_EMBED_MODEL: str = "models/gemini-embedding-001"

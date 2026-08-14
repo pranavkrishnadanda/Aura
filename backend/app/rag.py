@@ -125,6 +125,15 @@ def retrieve(query: str, top_k: int = 5) -> List[Tuple[dict, float]]:
                         "FROM chunks WHERE embedding IS NOT NULL ORDER BY embedding <=> CAST(:vec AS vector) LIMIT :k"
                     ), {"vec": str(vec), "k": top_k}).fetchall()
                     if rows:
+                        from app.db import chunk_embedding_stats
+                        stats = chunk_embedding_stats()
+                        if stats["unretrievable_in_vector_mode"]:
+                            # These chunks can never be returned by the query above.
+                            logger.warning(
+                                "%d of %d chunks have no embedding and are invisible to "
+                                "vector search; re-ingest them or clear embeddings to use TF-IDF",
+                                stats["unretrievable_in_vector_mode"], stats["total"],
+                            )
                         result = []
                         for r in rows:
                             result.append(({"id": r.id, "doc_id": r.doc_id, "doc_title": r.doc_title, "page": r.page, "text": r.text}, float(r.score)))

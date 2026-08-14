@@ -130,14 +130,16 @@ def get_thread_messages(request: Request, thread_id: str, limit: int = 100, offs
     return msgs[offset:offset+limit]
 
 @app.get("/api/v1/chunks/{chunk_id}")
-def get_chunk_by_id(chunk_id: str):
+@limiter.limit(settings.RATE_LIMIT_ANON)
+def get_chunk_by_id(request: Request, chunk_id: str):
     c = get_chunk(chunk_id)
     if not c:
         raise HTTPException(404, "Chunk not found")
     return c
 
 @app.get("/api/v1/documents")
-def list_docs():
+@limiter.limit(settings.RATE_LIMIT_ANON)
+def list_docs(request: Request):
     chunks = list_chunks()
     docs = {}
     for c in chunks:
@@ -163,7 +165,8 @@ async def upload_pdf(request: Request, background_tasks: BackgroundTasks, file: 
     return {"job_id": job_id, "status": "queued", "filename": file.filename, "bytes": len(data)}
 
 @app.get("/api/v1/documents/jobs/{job_id}")
-def get_job_status(job_id: str):
+@limiter.limit(settings.RATE_LIMIT_AUTH)  # polled once a second by the upload UI
+def get_job_status(request: Request, job_id: str):
     from app.ingest import get_job
     job = get_job(job_id)
     if not job:

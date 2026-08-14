@@ -33,6 +33,23 @@ function InlineCitations({ text, citations, onCite }: { text: string; citations:
   );
 }
 
+/** Per-browser thread id, persisted so a reload resumes the same conversation.
+ *
+ * This was the literal string "default" for every visitor, and the backend's
+ * ChatRequest.thread_id defaults to "default" too -- so every browser shared one
+ * conversation and each user saw the others' clinical queries in their history.
+ */
+function initialThreadId(): string {
+  if (typeof window === "undefined") return "default"; // SSR pass; replaced on mount
+  const KEY = "aura.thread_id";
+  let id = window.localStorage.getItem(KEY);
+  if (!id) {
+    id = `thr_${Math.random().toString(16).slice(2, 10)}${Date.now().toString(16).slice(-4)}`;
+    window.localStorage.setItem(KEY, id);
+  }
+  return id;
+}
+
 export default function Chat() {
   const [threadId, setThreadId] = useState("default");
   const [threads, setThreads] = useState<any[]>([]);
@@ -43,6 +60,8 @@ export default function Chat() {
   const [currentCitations, setCurrentCitations] = useState<Citation[]>([]);
   const scroller = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  // This browser's own session thread, used by the "Default session" entry.
+  const [sessionThread, setSessionThread] = useState("default");
 
   useEffect(() => { scroller.current?.scrollTo(0, scroller.current.scrollHeight); }, [messages, streaming]);
   useEffect(() => {
@@ -52,6 +71,14 @@ export default function Chat() {
       // sidebar rather than just leaving it empty.
       .then((d) => setThreads(Array.isArray(d) ? d : []))
       .catch(() => {});
+  }, []);
+
+  // Assign this browser its own thread after mount, so server and client render
+  // the same markup on the first pass.
+  useEffect(() => {
+    const id = initialThreadId();
+    setSessionThread(id);
+    setThreadId(id);
   }, []);
 
   // Abandon any in-flight stream when the component goes away, otherwise it keeps
@@ -144,7 +171,7 @@ export default function Chat() {
         </div>
 
         <div className="flex-1 overflow-y-auto px-2 pb-3 space-y-1">
-          <button onClick={() => openThread("default")} className={`w-full text-left rounded-md px-2.5 py-2 border ${threadId === "default" ? "bg-slate-900 text-white border-slate-900" : "bg-white border-slate-200 hover:bg-slate-50"}`}>
+          <button onClick={() => openThread(sessionThread)} className={`w-full text-left rounded-md px-2.5 py-2 border ${threadId === sessionThread ? "bg-slate-900 text-white border-slate-900" : "bg-white border-slate-200 hover:bg-slate-50"}`}>
             <div className="text-sm font-medium leading-none truncate">Default session</div>
             <div className="text-xs font-mono leading-none mt-1 opacity-70">resume · streaming</div>
           </button>
