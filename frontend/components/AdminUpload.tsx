@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { API_URL } from "@/lib/api";
+import { API_URL, authHeaders } from "@/lib/api";
 
 const MAX_PDF_MB = 50;
 const POLL_MS = 1000;
@@ -26,7 +26,7 @@ export default function AdminUpload({ compact }: { compact?: boolean }) {
     const fd = new FormData();
     fd.append("file", f);
     try {
-      const r = await fetch(`${API_URL}/api/v1/documents/upload`, { method: "POST", body: fd });
+      const r = await fetch(`${API_URL}/api/v1/documents/upload`, { method: "POST", body: fd, headers: authHeaders() });
       const j = await r.json();
       if (!r.ok) {
         setStatus(`Error: ${j.detail || JSON.stringify(j)}`);
@@ -52,7 +52,7 @@ export default function AdminUpload({ compact }: { compact?: boolean }) {
       await new Promise((res) => setTimeout(res, POLL_MS));
       let job: any;
       try {
-        const r = await fetch(`${API_URL}/api/v1/documents/jobs/${jobId}`);
+        const r = await fetch(`${API_URL}/api/v1/documents/jobs/${jobId}`, { headers: authHeaders() });
         if (!r.ok) {
           setStatus(`Error: job ${jobId} not found (HTTP ${r.status})`);
           return;

@@ -256,7 +256,7 @@ def get_thread(tid: str):
             _db_op_failed("get_thread", e)
     return _threads.get(tid)
 
-def add_message(tid: str, role: str, content: str, citations=None):
+def add_message(tid: str, role: str, content: str, citations=None, user_id: str = "anonymous"):
     citations_json = json.dumps(citations or [])
     if _db_available and _SessionLocal:
         try:
@@ -264,7 +264,11 @@ def add_message(tid: str, role: str, content: str, citations=None):
                 # ensure thread exists
                 t = s.query(Thread).filter(Thread.id == tid).first()
                 if not t:
-                    s.add(Thread(id=tid, title=tid, user_id="anonymous"))
+                    # Own it by the caller. Hardcoding "anonymous" here detached
+                    # every chat-created thread from the user who started it, so it
+                    # never appeared in their own thread list and ownership checks
+                    # could not scope it.
+                    s.add(Thread(id=tid, title=tid, user_id=user_id))
                     s.commit()
                 s.add(Message(id=f"msg_{uuid.uuid4().hex[:8]}", thread_id=tid, role=role, content=content, citations=citations_json))
                 s.commit()
@@ -286,14 +290,22 @@ def get_messages(tid: str):
     return _messages.get(tid, [])
 
 def list_chunks():
+    """Return the retrieval corpus.
+
+    Raises when the database is up but unreadable, rather than quietly returning
+    the three hardcoded SEED_CHUNKS. Silently substituting a demo corpus meant a
+    transient DB error made the assistant answer clinical questions from the wrong
+    documents while still presenting them as cited sources -- a wrong answer is
+    worse here than no answer.
+    """
     if _db_available and _SessionLocal:
         try:
             with _SessionLocal() as s:
                 rows = s.query(Chunk).all()
-                if rows:
-                    return [{"id": r.id, "doc_id": r.doc_id, "doc_title": r.doc_title, "page": r.page, "text": r.text} for r in rows]
+                return [{"id": r.id, "doc_id": r.doc_id, "doc_title": r.doc_title, "page": r.page, "text": r.text} for r in rows]
         except Exception as e:
             _db_op_failed("list_chunks", e)
+            raise RuntimeError("retrieval corpus is unavailable") from e
     return list(_chunks.values())
 
 def get_chunk(cid: str):

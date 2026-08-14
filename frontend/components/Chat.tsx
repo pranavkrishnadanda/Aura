@@ -1,6 +1,6 @@
 "use client";
 import { useState, useRef, useEffect } from "react";
-import { streamChat, API_URL } from "@/lib/api";
+import { streamChat, API_URL, authHeaders } from "@/lib/api";
 import { Citation, Message } from "@/lib/types";
 import CitationPanel from "./CitationPanel";
 import AdminUpload from "./AdminUpload";
@@ -65,7 +65,7 @@ export default function Chat() {
 
   useEffect(() => { scroller.current?.scrollTo(0, scroller.current.scrollHeight); }, [messages, streaming]);
   useEffect(() => {
-    fetch(`${API_URL}/api/v1/threads`)
+    fetch(`${API_URL}/api/v1/threads`, { headers: authHeaders() })
       .then((r) => r.json())
       // The list is rendered with .map, so a non-array error body would crash the
       // sidebar rather than just leaving it empty.
@@ -87,7 +87,7 @@ export default function Chat() {
 
   async function newThread() {
     const r = await fetch(`${API_URL}/api/v1/threads`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
+      method: "POST", headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify({ title: `Consult — ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` }),
     });
     const t = await r.json();
@@ -102,7 +102,7 @@ export default function Chat() {
     setStreaming(false);
     setThreadId(id); setActiveCite(null); setCurrentCitations([]);
     try {
-      const r = await fetch(`${API_URL}/api/v1/threads/${encodeURIComponent(id)}/messages`);
+      const r = await fetch(`${API_URL}/api/v1/threads/${encodeURIComponent(id)}/messages`, { headers: authHeaders() });
       const data = await r.json();
       const msgs = Array.isArray(data) ? data : [];
       setMessages(msgs);

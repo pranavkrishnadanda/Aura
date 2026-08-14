@@ -1,5 +1,20 @@
 export const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
+/** Optional API key, sent when the backend runs with ENABLE_AUTH=true.
+ *
+ * No request sent any credential before this, so turning auth on server-side made
+ * every call 401 and the UI simply stopped working with no indication why.
+ *
+ * NEXT_PUBLIC_* is inlined into the client bundle and therefore public: this is
+ * only appropriate for a demo key. A real deployment needs a session/token flow
+ * where the browser never holds a shared secret.
+ */
+const API_KEY = process.env.NEXT_PUBLIC_API_KEY || "";
+
+export function authHeaders(): Record<string, string> {
+  return API_KEY ? { "X-API-Key": API_KEY } : {};
+}
+
 export type StreamCallbacks = {
   onMeta: (citations: any[], isRefusal: boolean) => void;
   onToken: (token: string) => void;
@@ -26,7 +41,7 @@ export async function streamChat(
   try {
     const res = await fetch(`${API_URL}/api/v1/chat/stream`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
+      headers: { "Content-Type": "application/json", Accept: "text/event-stream", ...authHeaders() },
       body: JSON.stringify({ message, thread_id: threadId }),
       signal,
     });

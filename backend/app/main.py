@@ -140,7 +140,11 @@ def get_chunk_by_id(request: Request, chunk_id: str):
 @app.get("/api/v1/documents")
 @limiter.limit(settings.RATE_LIMIT_ANON)
 def list_docs(request: Request):
-    chunks = list_chunks()
+    try:
+        chunks = list_chunks()
+    except Exception as e:
+        logger.error("document listing unavailable: %s", e)
+        raise HTTPException(503, "Document store is temporarily unavailable.")
     docs = {}
     for c in chunks:
         docs.setdefault(c["doc_id"], {"doc_id": c["doc_id"], "title": c["doc_title"], "pages": set(), "chunks": 0})
@@ -153,11 +157,27 @@ def list_docs(request: Request):
 async def upload_pdf(request: Request, background_tasks: BackgroundTasks, file: UploadFile = File(...), user=Depends(get_current_user)):
     if not file.filename or not file.filename.lower().endswith(".pdf"):
         raise HTTPException(400, "Only PDFs allowed")
-    data = await file.read()
-    if len(data) > settings.MAX_PDF_MB * 1024 * 1024:
-        raise HTTPException(400, f"File too large ({settings.MAX_PDF_MB}MB max)")
-    if len(data) == 0:
+
+    # Read in bounded chunks and stop the moment the limit is passed. `await
+    # file.read()` pulled the whole body into memory first and only then compared
+    # it to MAX_PDF_MB, so the limit never actually bounded memory -- a handful of
+    # concurrent oversized uploads could exhaust a 512MB instance before any of
+    # them was rejected.
+    limit = settings.MAX_PDF_MB * 1024 * 1024
+    buf = bytearray()
+    while True:
+        piece = await file.read(1024 * 1024)
+        if not piece:
+            break
+        buf.extend(piece)
+        if len(buf) > limit:
+            raise HTTPException(400, f"File too large ({settings.MAX_PDF_MB}MB max)")
+    data = bytes(buf)
+    if not data:
         raise HTTPException(400, "Empty file")
+    # A PDF must start with %PDF-; the extension check alone is trivially spoofed.
+    if not data.startswith(b"%PDF-"):
+        raise HTTPException(400, "Not a valid PDF")
     from app.ingest import create_job, ingest_pdf_sync
     job_id = create_job()
     # Run in background so 100-page PDFs don't block
@@ -225,7 +245,14 @@ async def chat_stream(request: Request, body: ChatRequest, user=Depends(get_curr
                         break
             if ctx:
                 expand_query = f"{ctx} {query}"
-        retrieved = await retrieve_async(expand_query, top_k=top_k)
+        try:
+            retrieved = await retrieve_async(expand_query, top_k=top_k)
+        except Exception as e:
+            # Fail before the stream opens. Answering from a stale or partial
+            # corpus, or emitting the out-of-scope boundary text, would both
+            # misrepresent a backend outage as a normal result.
+            logger.error("retrieval unavailable: %s", e)
+            raise HTTPException(503, "Knowledge base is temporarily unavailable. Please retry.")
         thresh = effective_threshold()
         filtered = [(c,s) for c,s in retrieved if s >= thresh]
         is_refusal = False  # product: boundary handled by AI
@@ -239,7 +266,7 @@ async def chat_stream(request: Request, body: ChatRequest, user=Depends(get_curr
     else:
         logger.info(f"chat thread={body.thread_id} citations={len(citations)}")
 
-    add_message(body.thread_id, "user", query)
+    add_message(body.thread_id, "user", query, user_id=user["user_id"])
 
     async def event_gen():
         # TTFT: flush meta immediately
@@ -263,7 +290,7 @@ async def chat_stream(request: Request, body: ChatRequest, user=Depends(get_curr
             yield {"event": "error", "data": json.dumps({"detail": str(e)})}
         # Save assistant message
         if full_text:
-            add_message(body.thread_id, "assistant", full_text.strip(), citations)
+            add_message(body.thread_id, "assistant", full_text.strip(), citations, user_id=user["user_id"])
         yield {"event": "done", "data": json.dumps({"full_text": full_text.strip(), "citations": citations})}
         # Final heartbeat
         yield {"event": "heartbeat", "data": json.dumps({"ts": time.time()})}
