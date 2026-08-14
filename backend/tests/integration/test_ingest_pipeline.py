@@ -39,8 +39,18 @@ def _make_pdf(pages_text):
     return data
 
 
+def _all_chunks_by_id():
+    """Read the corpus through the public accessor.
+
+    Reading db._chunks directly only sees writes in the no-database configuration;
+    when a real database is attached the rows land in Postgres and the dict stays
+    empty, so these assertions silently measured nothing.
+    """
+    return {c["id"]: c for c in db.list_chunks()}
+
+
 def _new_chunks_since(before_ids):
-    return [v for k, v in db._chunks.items() if k not in before_ids]
+    return [v for k, v in _all_chunks_by_id().items() if k not in before_ids]
 
 
 def test_single_pdf_yields_one_distinct_doc_id():
@@ -52,7 +62,7 @@ def test_single_pdf_yields_one_distinct_doc_id():
         "Clinical note page one with enough distinct content to form its own chunk here.",
         "Clinical note page two with different distinct content to form another chunk here.",
     ])
-    before_ids = set(db._chunks.keys())
+    before_ids = set(_all_chunks_by_id())
     result = ingest.ingest_pdf_sync(pdf, "multi.pdf")
 
     new_chunks = _new_chunks_since(before_ids)
@@ -68,7 +78,7 @@ def test_page_numbers_are_one_based_and_correct():
         "Page two content long enough to clear chunk_text's fifty character minimum easily.",
         "Page three content long enough to clear chunk_text's fifty character minimum too.",
     ])
-    before_ids = set(db._chunks.keys())
+    before_ids = set(_all_chunks_by_id())
     ingest.ingest_pdf_sync(pdf, "pages.pdf")
 
     new_chunks = _new_chunks_since(before_ids)

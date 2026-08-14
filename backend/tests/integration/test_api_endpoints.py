@@ -220,16 +220,8 @@ def test_get_unknown_chunk_returns_404():
 # ---- GET /api/v1/documents ----
 
 def test_list_documents_groups_chunks_by_doc_id():
-    # Pin the corpus to exactly the known seed set. app.db._chunks is a shared
-    # module-level dict that tests/conftest.py does not reset, and other test
-    # modules outside this file's ownership may leave extra chunks in it; the
-    # autouse _isolate_chunks fixture restores whatever was there once this test
-    # finishes, so this reset is scoped to this test only.
-    from app.db import SEED_CHUNKS, _chunks
-
-    _chunks.clear()
-    _chunks.update({c["id"]: c for c in SEED_CHUNKS})
-
+    # conftest restores both the in-memory dict and the real tables to exactly the
+    # seed set before every test, so these counts hold in either storage mode.
     r = client.get("/api/v1/documents")
     assert r.status_code == 200
     docs = {d["doc_id"]: d for d in r.json()}

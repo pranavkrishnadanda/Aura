@@ -40,4 +40,36 @@ def reset_inmemory_stores():
     ingest._jobs.clear()
     db._chunks.clear()
     db._chunks.update({c["id"]: dict(c) for c in db.SEED_CHUNKS})
+    _reset_database(db)
     yield
+
+
+def _reset_database(db) -> None:
+    """Truncate and re-seed the real tables when a database is attached.
+
+    Clearing only the in-memory dicts is enough locally, where there is no
+    database, but under CI the suite runs against real Postgres and every row
+    written by one test survives into the next -- so corpus-count assertions pass
+    in isolation and fail in a full run. Storage backend must not change test
+    outcomes.
+    """
+    if not db.is_db_available() or not db._SessionLocal:
+        return
+    from sqlalchemy import text as sql_text
+
+    try:
+        with db._SessionLocal() as s:
+            s.execute(sql_text("TRUNCATE messages, threads, chunks RESTART IDENTITY CASCADE"))
+            for c in db.SEED_CHUNKS:
+                s.execute(
+                    sql_text(
+                        "INSERT INTO chunks (id, doc_id, doc_title, page, text) "
+                        "VALUES (:id, :doc_id, :doc_title, :page, :text)"
+                    ),
+                    c,
+                )
+            s.commit()
+    except Exception as e:  # pragma: no cover - diagnostic path
+        import logging
+
+        logging.getLogger("tests").warning("database reset failed: %s", e)

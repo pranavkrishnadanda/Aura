@@ -53,7 +53,8 @@ jobs:
           "
       - name: Test
         working-directory: backend
-        run: uv run pytest -q --cov=app --cov-report=term-missing
+        # --durations surfaces slow tests, so a CI-only timeout leaves evidence.
+        run: uv run pytest -q --cov=app --cov-report=term-missing --durations=10
 
   backend-no-db:
     name: Backend (in-memory fallback)

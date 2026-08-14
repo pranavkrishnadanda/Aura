@@ -10,6 +10,7 @@ real database.
 import pytest
 
 from app import db
+from app.config import settings
 from app.models import Thread
 
 pytestmark = pytest.mark.integration
@@ -146,7 +147,11 @@ def test_upsert_chunks_true_on_success_false_on_db_failure(monkeypatch):
         {"id": "chk_test_a", "doc_id": "doc_x", "doc_title": "X", "page": 1, "text": "hello world"}
     ])
     assert ok is True
-    assert db._chunks["chk_test_a"]["text"] == "hello world"
+    # Read back through the public accessor: with a real database the write lands
+    # in Postgres and never touches the in-memory dict, so asserting on _chunks
+    # directly only worked in the no-database configuration.
+    stored = db.get_chunk("chk_test_a")
+    assert stored is not None and stored["text"] == "hello world"
 
     monkeypatch.setattr(db, "_db_available", True)
     monkeypatch.setattr(db, "_SessionLocal", lambda: _FakeSession(raise_error=RuntimeError("boom")))
@@ -157,31 +162,28 @@ def test_upsert_chunks_true_on_success_false_on_db_failure(monkeypatch):
 
 
 def test_upsert_chunk_with_embedding_true_on_success_false_on_db_failure(monkeypatch):
+    # The vector must match the column width; real pgvector rejects any other
+    # length with "expected 768 dimensions".
+    vec = [0.0] * settings.EMBED_DIM
     ok = db.upsert_chunk_with_embedding(
         {"id": "chk_test_c", "doc_id": "doc_x", "doc_title": "X", "page": 1, "text": "hi"},
-        [0.1, 0.2],
+        vec,
     )
     assert ok is True
-    assert "chk_test_c" in db._chunks
+    assert db.get_chunk("chk_test_c") is not None
 
     monkeypatch.setattr(db, "_db_available", True)
     monkeypatch.setattr(db, "_SessionLocal", lambda: _FakeSession(raise_error=RuntimeError("boom")))
     ok2 = db.upsert_chunk_with_embedding(
         {"id": "chk_test_d", "doc_id": "doc_x", "doc_title": "X", "page": 1, "text": "hi"},
-        [0.1, 0.2],
+        vec,
     )
     assert ok2 is False
 
 
 def test_chunk_embedding_stats_reports_total_embedded_unretrievable():
-    # Pin the corpus to exactly the known seed set. Other test modules outside
-    # this file's ownership may leave extra chunks in the shared app.db._chunks
-    # dict (it isn't reset by tests/conftest.py); the autouse _isolate_chunks
-    # fixture above restores whatever was there once this test finishes, so this
-    # reset is scoped to this test only.
-    db._chunks.clear()
-    db._chunks.update({c["id"]: c for c in db.SEED_CHUNKS})
-
+    # conftest resets both the in-memory dict and the real tables to exactly the
+    # seed set before each test, so the corpus is the same in both storage modes.
     stats = db.chunk_embedding_stats()
     assert stats["total"] == 3  # the three SEED_CHUNKS, none embedded
     assert stats["embedded"] == 0
