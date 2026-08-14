@@ -157,9 +157,9 @@ async def chat_stream(request: Request, body: ChatRequest, user=Depends(get_curr
     if len(query.split()) < 1:
         raise HTTPException(400, "Invalid query")
     top_k = min(body.top_k or settings.TOP_K, 10)
-    # Ensure thread exists
+    # Ensure the thread the client referenced actually exists under that id.
     if not get_thread(body.thread_id):
-        create_thread(body.thread_id, user_id=user["user_id"])
+        create_thread(title=body.thread_id, user_id=user["user_id"], thread_id=body.thread_id)
 
     # Greeting bypass
     from app.rag import is_greeting
@@ -240,5 +240,12 @@ async def chat_stream(request: Request, body: ChatRequest, user=Depends(get_curr
     return EventSourceResponse(event_gen(), headers=headers, media_type="text/event-stream")
 
 @app.post("/api/chat/stream")
+@limiter.limit(settings.RATE_LIMIT_ANON)
 async def chat_stream_compat(request: Request, body: ChatRequest, user=Depends(get_current_user)):
+    """Legacy path kept for older clients.
+
+    This carried no rate limit while /api/v1/chat/stream did, so the limit on the
+    most expensive endpoint in the app could be skipped entirely by dropping /v1
+    from the URL.
+    """
     return await chat_stream(request, body, user)

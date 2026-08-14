@@ -134,8 +134,16 @@ def try_pg_connection() -> bool:
         return False
 
 # ---- Thread ops ----
-def create_thread(title: str = "New consultation", user_id: str = "anonymous") -> dict:
-    tid = f"thr_{uuid.uuid4().hex[:8]}"
+def create_thread(title: str = "New consultation", user_id: str = "anonymous",
+                  thread_id: Optional[str] = None) -> dict:
+    """Create a thread, optionally with a caller-supplied id.
+
+    Callers that need a specific id (the chat endpoint materialising the thread a
+    client already referenced) must pass thread_id. Passing it as `title` created a
+    thread under a fresh random id instead, leaving the referenced id absent and
+    add_message to silently create a second, untitled, anonymous-owned thread.
+    """
+    tid = thread_id or f"thr_{uuid.uuid4().hex[:8]}"
     now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     if _db_available and _SessionLocal:
         try:

@@ -42,11 +42,21 @@ export default function Chat() {
   const [activeCite, setActiveCite] = useState<Citation | null>(null);
   const [currentCitations, setCurrentCitations] = useState<Citation[]>([]);
   const scroller = useRef<HTMLDivElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => { scroller.current?.scrollTo(0, scroller.current.scrollHeight); }, [messages, streaming]);
   useEffect(() => {
-    fetch(`${API_URL}/api/v1/threads`).then((r) => r.json()).then(setThreads).catch(() => {});
+    fetch(`${API_URL}/api/v1/threads`)
+      .then((r) => r.json())
+      // The list is rendered with .map, so a non-array error body would crash the
+      // sidebar rather than just leaving it empty.
+      .then((d) => setThreads(Array.isArray(d) ? d : []))
+      .catch(() => {});
   }, []);
+
+  // Abandon any in-flight stream when the component goes away, otherwise it keeps
+  // reading and calling setState on an unmounted tree.
+  useEffect(() => () => abortRef.current?.abort(), []);
 
   async function newThread() {
     const r = await fetch(`${API_URL}/api/v1/threads`, {
@@ -59,13 +69,18 @@ export default function Chat() {
   }
 
   async function openThread(id: string) {
-    setThreadId(id); setActiveCite(null);
+    // Cancel any stream still writing into the thread we are leaving; without this
+    // its tokens land in the newly opened conversation.
+    abortRef.current?.abort();
+    setStreaming(false);
+    setThreadId(id); setActiveCite(null); setCurrentCitations([]);
     try {
-      const r = await fetch(`${API_URL}/api/v1/threads/${id}/messages`);
+      const r = await fetch(`${API_URL}/api/v1/threads/${encodeURIComponent(id)}/messages`);
       const data = await r.json();
-      setMessages(data);
+      const msgs = Array.isArray(data) ? data : [];
+      setMessages(msgs);
       // restore citations from last assistant message if present
-      const last = [...data].reverse().find((m: any) => m.citations?.length);
+      const last = [...msgs].reverse().find((m: any) => m.citations?.length);
       if (last) setCurrentCitations(last.citations);
     } catch {}
   }
@@ -80,18 +95,29 @@ export default function Chat() {
     let metaCites: Citation[] = [];
     // placeholder for assistant
     setMessages((m) => [...m, { role: "assistant", content: "" }]);
-    await streamChat(q, threadId, {
-      onMeta: (cits) => { metaCites = cits as Citation[]; setCurrentCitations(cits as Citation[]); },
-      onToken: (tok) => {
-        acc += tok;
-        setMessages((prev) => { const copy = [...prev]; copy[copy.length - 1] = { role: "assistant", content: acc, citations: metaCites }; return copy; });
-      },
-      onDone: (full) => {
-        setMessages((prev) => { const copy = [...prev]; copy[copy.length - 1] = { role: "assistant", content: full, citations: metaCites }; return copy; });
-        setStreaming(false);
-      },
-      onError: (e) => { setMessages((prev) => [...prev.slice(0, -1), { role: "assistant", content: `Error: ${e}` }]); setStreaming(false); },
-    });
+
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+    try {
+      await streamChat(q, threadId, {
+        onMeta: (cits) => { metaCites = cits as Citation[]; setCurrentCitations(cits as Citation[]); },
+        onToken: (tok) => {
+          acc += tok;
+          setMessages((prev) => { const copy = [...prev]; copy[copy.length - 1] = { role: "assistant", content: acc, citations: metaCites }; return copy; });
+        },
+        onDone: (full) => {
+          setMessages((prev) => { const copy = [...prev]; copy[copy.length - 1] = { role: "assistant", content: full || acc, citations: metaCites }; return copy; });
+        },
+        onError: (e) => { setMessages((prev) => [...prev.slice(0, -1), { role: "assistant", content: `Error: ${e}` }]); },
+      }, ctrl.signal);
+    } catch (e: any) {
+      setMessages((prev) => [...prev.slice(0, -1), { role: "assistant", content: `Error: ${e?.message || e}` }]);
+    } finally {
+      // Always clear, on every path. Previously this lived only inside onDone and
+      // onError, so any throw left the composer disabled permanently.
+      if (abortRef.current === ctrl) abortRef.current = null;
+      setStreaming(false);
+    }
   }
 
   return (

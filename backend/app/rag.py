@@ -260,16 +260,31 @@ async def generate_answer(query: str, retrieved: List[Tuple[dict, float]]):
             async for tok in stream_gemini(query, context):
                 yield tok
         else:
-            base = citations[0]['text']
-            if len(citations) > 1:
-                mock_answer = f"{base} [1] Clinicians should also note contraindications including angioedema and renal artery stenosis [2]."
-            else:
-                mock_answer = f"{base} [1]"
-                if "lisinopril" in base.lower():
-                    mock_answer += " Initiate at low dose and titrate per response [1]."
+            # Offline mock. It may only replay retrieved text verbatim, each span
+            # tagged with the citation it actually came from.
+            #
+            # This previously appended fixed clinical claims -- "contraindications
+            # including angioedema and renal artery stenosis [2]" for any query with
+            # more than one citation, and lisinopril dosing advice whenever that
+            # string appeared -- regardless of the question or what the sources said,
+            # under a citation marker pointing at an unrelated chunk. Inventing
+            # medical guidance and attributing it to a source is the exact failure
+            # this product claims to prevent.
+            mock_answer = " ".join(
+                f"{chunk['text']} [{i}]" for i, chunk in enumerate(citations[:2], 1)
+            )
             async for tok in stream_mock(mock_answer):
                 yield tok
     except Exception as e:
-        fallback = f"{citations[0]['text']} [1]"
-        async for tok in stream_mock(fallback):
+        # Do not dress a provider outage up as an answer. The old fallback emitted
+        # raw chunk text with a fabricated [1], so a clinician saw something that
+        # looked like a grounded response when generation had actually failed.
+        logger.error("generation failed via provider=%s: %s", provider, e)
+        sources = ", ".join("{} p.{}".format(c["doc_title"], c["page"]) for c in citations[:3])
+        notice = (
+            "I couldn't complete that answer — the language model is unavailable right now. "
+            "Please retry rather than relying on a partial response. "
+            f"The sources I retrieved for this query were: {sources}."
+        )
+        async for tok in stream_mock(notice):
             yield tok
