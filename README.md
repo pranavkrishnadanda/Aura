@@ -29,17 +29,43 @@ docker compose up --build
 ```
 
 ### Key Endpoints
-- `POST /api/v1/chat/stream` — SSE stream (TTFT <400ms, 0.85 threshold, citations)
+- `POST /api/v1/chat/stream` — SSE stream with citations. The score floor is
+  `RETRIEVAL_THRESHOLD` (0.85) in pgvector mode and `TFIDF_THRESHOLD` (0.10) in
+  the TF-IDF fallback; `/health` reports which is active.
 - `POST /api/v1/documents/upload` — PDF ingest (chunk → embed → pgvector)
 - `GET  /api/v1/documents` / `GET /api/v1/chunks/{id}`
 - `POST /api/v1/threads` / `GET /api/v1/threads/{id}/messages`
 
-### Compliance Notes
-- Supabase encrypts at rest (AES-256) + TLS in transit
-- `LOG_QUERIES=false` by default — no PHI logged; LLM providers set to no-training
-- Re-runs on Render free tier still meet 99.9% demo uptime; for prod use paid tier to avoid sleep
+### Status — read before demoing
 
-### Load Test (1000 concurrent SSE)
+This is a portfolio/demo build, not a production clinical system. Known limits:
+
+- **Auth is off by default.** With `ENABLE_AUTH=false` every caller is anonymous
+  and shares one dataset. Set `ENABLE_AUTH=true` and `API_KEYS=...` to enforce
+  per-user isolation — note the frontend does not yet send a key.
+- **Retrieval falls back to TF-IDF** unless `GEMINI_API_KEY` is set *and* has
+  quota *and* documents have been ingested with embeddings. `GET /health` reports
+  `retrieval_mode` (`pgvector` | `tfidf`) and the threshold actually in force —
+  trust that over any number written here.
+- **No migrations.** Schema comes from `create_all`; changing a model on an
+  existing database requires manual intervention.
+- **If Postgres is unreachable the API keeps serving from memory.** `/health`
+  reports `status: degraded` with `storage_mode: in-memory (ephemeral)` and
+  `/ready` returns 503. Nothing is persisted in that state.
+
+### Compliance Notes
+- Supabase encrypts at rest (AES-256) + TLS in transit — this applies only when
+  the app is actually connected to Postgres; see `storage_mode` in `/health`.
+- `LOG_QUERIES=false` by default — query text is not logged.
+- Render's free tier sleeps after 15 minutes idle, so the first request takes
+  ~30s. That is incompatible with an uptime guarantee; use a paid tier for one.
+
+### Load Test
 ```bash
-k6 run backend/tests/load_sse.js
+k6 run backend/tests/load_sse_k6.js
+# override concurrency / target:
+VUS=500 API_URL=https://<your-render>.onrender.com/api/v1/chat/stream \
+  k6 run backend/tests/load_sse_k6.js
 ```
+Defaults to 200 VUs. `http_req_waiting` (time to first byte) is the TTFT proxy;
+`http_req_duration` covers the whole stream and is not a TTFT measurement.

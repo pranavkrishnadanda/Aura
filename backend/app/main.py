@@ -26,13 +26,20 @@ async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
     return JSONResponse(status_code=429, content={"detail": "Rate limit exceeded. Try again shortly."})
 
 origins = [o.strip() for o in settings.CORS_ORIGINS.split(",") if o.strip()]
+if not origins:
+    # Falling back to "*" while also sending Allow-Credentials: true produces a
+    # header pair every browser rejects, so an unset CORS_ORIGINS made the API
+    # unreachable from the frontend with only an opaque CORS error to debug.
+    # Credentials are not needed here -- auth travels in the X-API-Key header, not
+    # a cookie -- so the wildcard is paired with credentials disabled instead.
+    logger.warning("CORS_ORIGINS is unset; allowing all origins without credentials")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins if origins else ["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-    expose_headers=["*"],
+    allow_origins=origins or ["*"],
+    allow_credentials=bool(origins),
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Content-Type", "Accept", "X-API-Key"],
+    expose_headers=["X-Response-Time"],
 )
 
 @app.middleware("http")
