@@ -87,20 +87,39 @@ def post_thread(request: Request, body: ThreadCreate, user=Depends(get_current_u
         raise HTTPException(400, "Title too long")
     return create_thread(body.title or "New consultation", user_id=user["user_id"])
 
+def _assert_thread_access(thread_id: str, user: dict) -> dict:
+    """Fetch a thread, enforcing ownership when auth is on.
+
+    This endpoint previously had no ownership check whatsoever, so any caller could
+    read any conversation by naming its id -- and ids are only 8 hex characters.
+    A 404 (not 403) is returned for someone else's thread so the endpoint does not
+    confirm which ids exist.
+    """
+    t = get_thread(thread_id)
+    if not t:
+        raise HTTPException(404, "Thread not found")
+    if settings.ENABLE_AUTH and t.get("user_id") not in (user["user_id"], None):
+        raise HTTPException(404, "Thread not found")
+    return t
+
 @app.get("/api/v1/threads")
 @limiter.limit(settings.RATE_LIMIT_ANON)
 def get_threads(request: Request, user=Depends(get_current_user)):
-    # Return only user's threads if auth enabled
-    uid = user["user_id"] if settings.ENABLE_AUTH else None
-    return list_threads(user_id=uid)
+    # Always scope to the caller. Passing None when auth was disabled returned
+    # every thread from every visitor, so one demo user saw another's clinical
+    # queries in the sidebar.
+    return list_threads(user_id=user["user_id"])
 
 @app.get("/api/v1/threads/{thread_id}/messages")
 @limiter.limit(settings.RATE_LIMIT_ANON)
-def get_thread_messages(request: Request, thread_id: str, limit: int = 100, offset: int = 0):
-    if not get_thread(thread_id):
-        raise HTTPException(404, "Thread not found")
+def get_thread_messages(request: Request, thread_id: str, limit: int = 100, offset: int = 0,
+                        user=Depends(get_current_user)):
+    _assert_thread_access(thread_id, user)
+    # Clamp pagination: a negative offset silently wrapped around the list and an
+    # unbounded limit let one request pull an entire conversation history.
+    offset = max(0, offset)
+    limit = max(1, min(limit, 500))
     msgs = get_messages(thread_id)
-    # pagination
     return msgs[offset:offset+limit]
 
 @app.get("/api/v1/chunks/{chunk_id}")
@@ -157,9 +176,12 @@ async def chat_stream(request: Request, body: ChatRequest, user=Depends(get_curr
     if len(query.split()) < 1:
         raise HTTPException(400, "Invalid query")
     top_k = min(body.top_k or settings.TOP_K, 10)
-    # Ensure the thread the client referenced actually exists under that id.
+    # Ensure the thread the client referenced actually exists under that id, and
+    # that it belongs to the caller before appending to it.
     if not get_thread(body.thread_id):
         create_thread(title=body.thread_id, user_id=user["user_id"], thread_id=body.thread_id)
+    else:
+        _assert_thread_access(body.thread_id, user)
 
     # Greeting bypass
     from app.rag import is_greeting

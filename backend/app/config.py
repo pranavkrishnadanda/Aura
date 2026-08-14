@@ -31,6 +31,10 @@ class Settings(BaseSettings):
     RATE_LIMIT_AUTH: str = "300/minute"
     MAX_PDF_MB: int = 50
     ENABLE_AUTH: bool = False  # set True in prod to require X-API-Key
+    # Comma-separated API keys accepted when ENABLE_AUTH is true. Enabling auth
+    # without setting these fails closed (every request is rejected) rather than
+    # silently admitting everyone.
+    API_KEYS: str = ""
     EMBED_CACHE_TTL: int = 3600
 
     class Config:
