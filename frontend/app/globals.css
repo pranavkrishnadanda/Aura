@@ -1,0 +1,12 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Workbench typography: system stack with distinct hierarchy, not Inter-everywhere */
+:root { --accent:  #0f766e; /* teal-700, not purple */ }
+html { -webkit-font-smoothing: antialiased; }
+body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; color: #0f172a; background: #f8fafc; }
+
+/* subtle scrollbar for dense panels */
+*::-webkit-scrollbar { width: 6px; height: 6px; }
+*::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 9999px; }

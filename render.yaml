@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: aura-api
+    env: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port 10000
+    plan: free
+    envVars:
+      - key: DATABASE_URL
+        sync: false  # paste Supabase URL in Render dashboard
+      - key: LLM_PROVIDER
+        value: groq
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: RETRIEVAL_THRESHOLD
+        value: 0.85
+      - key: CORS_ORIGINS
+        value: https://your-vercel-app.vercel.app

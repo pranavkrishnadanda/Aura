@@ -1,0 +1,13 @@
+.env
+node_modules
+.next
+__pycache__
+*.pyc
+.venv
+dist
+pgdata
+.DS_Store
+.pytest_cache
+.vscode
+*.egg-info
+tsconfig.tsbuildinfo

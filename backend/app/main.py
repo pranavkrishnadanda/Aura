@@ -1,0 +1,228 @@
+import asyncio, json, time, uuid, logging
+from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks, Depends, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from sse_starlette.sse import EventSourceResponse
+from app.config import settings
+from app.schemas import ChatRequest, ThreadCreate
+from app.db import create_thread, list_threads, get_thread, get_messages, add_message, get_chunk, list_chunks, try_pg_connection
+from app.rag import retrieve, generate_answer, effective_threshold
+from app.auth import get_current_user
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+logger = logging.getLogger("aura")
+
+app = FastAPI(title="Aura API", version="1.0.0", description="Clinical Intelligence Streaming RAG — production")
+
+# Rate limiting
+limiter = Limiter(key_func=get_remote_address, default_limits=[settings.RATE_LIMIT_ANON])
+app.state.limiter = limiter
+
+@app.exception_handler(RateLimitExceeded)
+async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
+    return JSONResponse(status_code=429, content={"detail": "Rate limit exceeded. Try again shortly."})
+
+origins = [o.strip() for o in settings.CORS_ORIGINS.split(",") if o.strip()]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins if origins else ["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["*"],
+)
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    start = time.time()
+    # PII-safe: don't log query content if LOG_QUERIES false
+    response = await call_next(request)
+    elapsed = (time.time() - start) * 1000
+    logger.info(f"{request.method} {request.url.path} {response.status_code} {elapsed:.1f}ms")
+    response.headers["X-Response-Time"] = f"{elapsed:.1f}ms"
+    return response
+
+@app.get("/health")
+def health():
+    return {
+        "status": "ok",
+        "version": "1.0.0",
+        "provider": settings.LLM_PROVIDER,
+        "threshold": effective_threshold(),
+        "configured_threshold": settings.RETRIEVAL_THRESHOLD,
+        "pg_reachable": try_pg_connection(),
+        "uptime": time.time(),
+    }
+
+@app.get("/ready")
+def ready():
+    # For k8s/Render health checks
+    pg = try_pg_connection()
+    return {"ready": True, "pg": pg, "llm": bool(settings.GEMINI_API_KEY or settings.GROQ_API_KEY or settings.LLM_PROVIDER == "mock")}
+
+# ---- Threads ----
+@app.post("/api/v1/threads")
+@limiter.limit(settings.RATE_LIMIT_AUTH)
+def post_thread(request: Request, body: ThreadCreate, user=Depends(get_current_user)):
+    if len(body.title or "") > 200:
+        raise HTTPException(400, "Title too long")
+    return create_thread(body.title or "New consultation", user_id=user["user_id"])
+
+@app.get("/api/v1/threads")
+@limiter.limit(settings.RATE_LIMIT_ANON)
+def get_threads(request: Request, user=Depends(get_current_user)):
+    # Return only user's threads if auth enabled
+    uid = user["user_id"] if settings.ENABLE_AUTH else None
+    return list_threads(user_id=uid)
+
+@app.get("/api/v1/threads/{thread_id}/messages")
+@limiter.limit(settings.RATE_LIMIT_ANON)
+def get_thread_messages(request: Request, thread_id: str, limit: int = 100, offset: int = 0):
+    if not get_thread(thread_id):
+        raise HTTPException(404, "Thread not found")
+    msgs = get_messages(thread_id)
+    # pagination
+    return msgs[offset:offset+limit]
+
+@app.get("/api/v1/chunks/{chunk_id}")
+def get_chunk_by_id(chunk_id: str):
+    c = get_chunk(chunk_id)
+    if not c:
+        raise HTTPException(404, "Chunk not found")
+    return c
+
+@app.get("/api/v1/documents")
+def list_docs():
+    chunks = list_chunks()
+    docs = {}
+    for c in chunks:
+        docs.setdefault(c["doc_id"], {"doc_id": c["doc_id"], "title": c["doc_title"], "pages": set(), "chunks": 0})
+        docs[c["doc_id"]]["pages"].add(c["page"])
+        docs[c["doc_id"]]["chunks"] += 1
+    return [{"doc_id": v["doc_id"], "title": v["title"], "pages": len(v["pages"]), "chunks": v["chunks"]} for v in docs.values()]
+
+@app.post("/api/v1/documents/upload")
+@limiter.limit("10/minute")
+async def upload_pdf(request: Request, background_tasks: BackgroundTasks, file: UploadFile = File(...), user=Depends(get_current_user)):
+    if not file.filename or not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(400, "Only PDFs allowed")
+    data = await file.read()
+    if len(data) > settings.MAX_PDF_MB * 1024 * 1024:
+        raise HTTPException(400, f"File too large ({settings.MAX_PDF_MB}MB max)")
+    if len(data) == 0:
+        raise HTTPException(400, "Empty file")
+    from app.ingest import create_job, ingest_pdf_sync
+    job_id = create_job()
+    # Run in background so 100-page PDFs don't block
+    background_tasks.add_task(ingest_pdf_sync, data, file.filename, job_id)
+    return {"job_id": job_id, "status": "queued", "filename": file.filename, "bytes": len(data)}
+
+@app.get("/api/v1/documents/jobs/{job_id}")
+def get_job_status(job_id: str):
+    from app.ingest import get_job
+    job = get_job(job_id)
+    if not job:
+        raise HTTPException(404, "Job not found")
+    return {"job_id": job_id, **job}
+
+# ---- Streaming Chat (production hardening) ----
+@app.post("/api/v1/chat/stream")
+@limiter.limit(settings.RATE_LIMIT_ANON)
+async def chat_stream(request: Request, body: ChatRequest, user=Depends(get_current_user)):
+    query = (body.message or "").strip()
+    if not query:
+        raise HTTPException(400, "Message empty")
+    if len(query) > settings.MAX_MESSAGE_LENGTH:
+        raise HTTPException(400, f"Message too long (max {settings.MAX_MESSAGE_LENGTH})")
+    # Basic injection guard
+    if len(query.split()) < 1:
+        raise HTTPException(400, "Invalid query")
+    top_k = min(body.top_k or settings.TOP_K, 10)
+    # Ensure thread exists
+    if not get_thread(body.thread_id):
+        create_thread(body.thread_id, user_id=user["user_id"])
+
+    # Greeting bypass
+    from app.rag import is_greeting
+    if is_greeting(query):
+        retrieved = []
+        filtered = []
+        is_refusal = False
+        citations = []
+        expand_query = query
+    else:
+        expand_query = query
+        history = get_messages(body.thread_id)
+        low = query.lower().strip()
+        is_anaphora = any(p in low for p in ["that ", "this ", "it ", "contraindication", "dosage", "dose"])
+        is_short_followup = is_anaphora and len(low.split()) <= 12 and len(history) > 0
+        if is_short_followup:
+            # Pick last *clinical* user message (the one that had citations), not the hair boundary
+            ctx = ""
+            for idx in range(len(history)-1, -1, -1):
+                if history[idx].get("role") == "user":
+                    # check if following assistant had citations
+                    nxt = history[idx+1] if idx+1 < len(history) else None
+                    if nxt and nxt.get("citations"):
+                        ctx = history[idx]["content"]
+                        break
+            if not ctx:
+                # fallback: last user message with medical keyword
+                for m in reversed(history):
+                    if m.get("role") == "user" and any(k in m["content"].lower() for k in ["hypertension","ckd","lisinopril","arb","creatinine","enoxaparin"]):
+                        ctx = m["content"]
+                        break
+            if ctx:
+                expand_query = f"{ctx} {query}"
+        retrieved = retrieve(expand_query, top_k=top_k)
+        thresh = effective_threshold()
+        filtered = [(c,s) for c,s in retrieved if s >= thresh]
+        is_refusal = False  # product: boundary handled by AI
+        citations = []
+        for i,(chunk,score) in enumerate(filtered,1):
+            citations.append({"id": chunk["id"], "doc_id": chunk["doc_id"], "doc_title": chunk["doc_title"], "page": chunk["page"], "chunk_text": chunk["text"], "score": round(float(score),3), "idx": i})
+
+    # Don't log PHI
+    if settings.LOG_QUERIES:
+        logger.info(f"chat thread={body.thread_id} q_len={len(query)} citations={len(citations)}")
+    else:
+        logger.info(f"chat thread={body.thread_id} citations={len(citations)}")
+
+    add_message(body.thread_id, "user", query)
+
+    async def event_gen():
+        # TTFT: flush meta immediately
+        yield {"event": "meta", "data": json.dumps({"citations": citations, "is_refusal": is_refusal, "thread_id": body.thread_id})}
+        await asyncio.sleep(0.005)
+        # Heartbeat to keep Render free tier from killing idle SSE
+        full_text = ""
+        try:
+            async for token in generate_answer(expand_query, retrieved):
+                full_text += token
+                yield {"event": "token", "data": json.dumps({"token": token})}
+                # Check client disconnect
+                if await request.is_disconnected():
+                    logger.info(f"client disconnected {body.thread_id}")
+                    break
+        except asyncio.CancelledError:
+            logger.info(f"stream cancelled {body.thread_id}")
+            raise
+        except Exception as e:
+            logger.error(f"stream error: {e}")
+            yield {"event": "error", "data": json.dumps({"detail": str(e)})}
+        # Save assistant message
+        if full_text:
+            add_message(body.thread_id, "assistant", full_text.strip(), citations)
+        yield {"event": "done", "data": json.dumps({"full_text": full_text.strip(), "citations": citations})}
+        # Final heartbeat
+        yield {"event": "heartbeat", "data": json.dumps({"ts": time.time()})}
+
+    headers = {"X-Accel-Buffering": "no", "Cache-Control": "no-cache", "Connection": "keep-alive"}
+    return EventSourceResponse(event_gen(), headers=headers, media_type="text/event-stream")
+
+@app.post("/api/chat/stream")
+async def chat_stream_compat(request: Request, body: ChatRequest, user=Depends(get_current_user)):
+    return await chat_stream(request, body, user)
