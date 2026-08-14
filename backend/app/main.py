@@ -6,7 +6,7 @@ from sse_starlette.sse import EventSourceResponse
 from app.config import settings
 from app.schemas import ChatRequest, ThreadCreate
 from app.db import create_thread, list_threads, get_thread, get_messages, add_message, get_chunk, list_chunks, try_pg_connection, db_error, storage_mode
-from app.rag import retrieve, generate_answer, effective_threshold
+from app.rag import retrieve, generate_answer, effective_threshold, retrieval_mode
 from app.auth import get_current_user
 from slowapi import Limiter
 from slowapi.util import get_remote_address
@@ -55,8 +55,13 @@ def health():
         "status": "ok" if pg else "degraded",
         "version": "1.0.0",
         "provider": settings.LLM_PROVIDER,
+        "retrieval_mode": retrieval_mode(),
+        # The floor actually enforced, and the two configured floors it is chosen
+        # from. These used to disagree silently: 0.10 was always applied while
+        # 0.85 was reported.
         "threshold": effective_threshold(),
         "configured_threshold": settings.RETRIEVAL_THRESHOLD,
+        "tfidf_threshold": settings.TFIDF_THRESHOLD,
         "pg_reachable": pg,
         "storage_mode": storage_mode(),
         "db_error": db_error(),

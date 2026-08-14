@@ -4,7 +4,7 @@ Production RAG:
 - Generation: Gemini/Groq streaming, greeting + boundary AI (never hard deterministic)
 - Embeddings cached in-memory for demo; prod uses pgvector + Redis
 """
-import asyncio, re, time
+import asyncio, re, time, logging
 from typing import List, Tuple
 from app.config import settings
 from app.db import list_chunks, is_db_available
@@ -17,24 +17,74 @@ try:
 except ImportError:
     HAS_SKLEARN = False
 
+logger = logging.getLogger("aura.rag")
+
 HARD_REFUSAL = "I cannot find verified clinical guidelines to answer this query."  # kept for analytics, not user-facing
 
-# With stop_words='english', "what do you know about hypertension" -> 0.114, so use 0.10 to pass vague but still block cake (0.0).
+# Cache the "are there any embedded chunks?" probe; it is consulted per request and
+# per streamed token, and the answer only changes when a document is ingested.
+_embedded_probe: dict = {"value": False, "checked_at": 0.0}
+_EMBEDDED_PROBE_TTL = 30.0
+
+
+def _has_embedded_chunks() -> bool:
+    now = time.time()
+    if now - _embedded_probe["checked_at"] < _EMBEDDED_PROBE_TTL:
+        return _embedded_probe["value"]
+    value = False
+    try:
+        from app.db import _SessionLocal
+        from sqlalchemy import text as sql_text
+        with _SessionLocal() as s:
+            value = s.execute(sql_text("SELECT 1 FROM chunks WHERE embedding IS NOT NULL LIMIT 1")).first() is not None
+    except Exception as e:
+        logger.debug("embedded-chunk probe failed, assuming none: %s", e)
+        value = False
+    _embedded_probe.update({"value": value, "checked_at": now})
+    return value
+
+def retrieval_mode() -> str:
+    """Which retrieval path a query will actually take right now.
+
+    'pgvector' requires a live DB, an embedding key, and at least one embedded
+    chunk. Anything less means we are really running sparse TF-IDF, and the
+    caller (and /health) should be told that rather than shown a vector number.
+    """
+    if is_db_available() and settings.GEMINI_API_KEY and _has_embedded_chunks():
+        return "pgvector"
+    return "tfidf" if HAS_SKLEARN else "token-overlap"
+
+
 def effective_threshold() -> float:
-    # If pgvector available + embeddings, use 0.85; else TF-IDF fallback 0.10
-    if is_db_available():
-        # Check if chunks have embeddings — if any, we are in embedding mode
-        # For now, TF-IDF fallback still used until embeddings populated
-        return 0.10
-    return 0.10 if HAS_SKLEARN else settings.RETRIEVAL_THRESHOLD
+    """Score floor for the retrieval mode actually in use.
+
+    Previously this returned 0.10 on every branch while /health and render.yaml
+    advertised RETRIEVAL_THRESHOLD=0.85, so the documented grounding gate was
+    never the one enforced. Dense and sparse cosine scores live on different
+    scales, so each mode gets its own configured floor.
+    """
+    return settings.RETRIEVAL_THRESHOLD if retrieval_mode() == "pgvector" else settings.TFIDF_THRESHOLD
 
 GREETING_PATTERNS = {"hi", "hello", "hey", "hiya", "help", "hi there", "hello there"}
 def is_greeting(text: str) -> bool:
     t = text.strip().lower()
     return t in GREETING_PATTERNS or (len(t.split()) <= 2 and t in GREETING_PATTERNS)
 
-# Simple in-memory embedding cache
+# Simple in-memory embedding cache, keyed by query text. Entries were previously
+# never removed -- expired ones were skipped on read but still retained, so the dict
+# grew without bound and kept raw clinical queries resident for the process
+# lifetime. Bounded and pruned below.
 _embed_cache: dict = {}
+_EMBED_CACHE_MAX = 500
+
+
+def _prune_embed_cache() -> None:
+    now = time.time()
+    for k in [k for k, (_, ts) in _embed_cache.items() if now - ts >= settings.EMBED_CACHE_TTL]:
+        _embed_cache.pop(k, None)
+    if len(_embed_cache) > _EMBED_CACHE_MAX:
+        for k in sorted(_embed_cache, key=lambda k: _embed_cache[k][1])[: len(_embed_cache) - _EMBED_CACHE_MAX]:
+            _embed_cache.pop(k, None)
 
 def _embed_query_gemini(query: str) -> List[float] | None:
     if not settings.GEMINI_API_KEY:
@@ -43,13 +93,19 @@ def _embed_query_gemini(query: str) -> List[float] | None:
         return _embed_cache[query][0]
     try:
         import google.generativeai as genai
+        from app.ingest import _embed_call
         genai.configure(api_key=settings.GEMINI_API_KEY)
-        res = genai.embed_content(model=settings.GEMINI_EMBED_MODEL, content=query)
+        # Must match the ingest-side call exactly: a query embedded at a different
+        # width than the stored chunks cannot be compared against them.
+        res = _embed_call(genai, query)
         vec = res["embedding"]
+        if vec and isinstance(vec[0], (list, tuple)):
+            vec = vec[0]
         _embed_cache[query] = (vec, time.time())
+        _prune_embed_cache()
         return vec
     except Exception as e:
-        print(f"[rag] query embedding failed, fallback TF-IDF: {e}")
+        logger.warning("query embedding failed, falling back to TF-IDF: %s", e)
         return None
 
 def retrieve(query: str, top_k: int = 5) -> List[Tuple[dict, float]]:

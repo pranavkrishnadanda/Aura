@@ -7,8 +7,19 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: str = ""
     GROQ_MODEL: str = "llama3-8b-8192"
     GEMINI_MODEL: str = "gemini-1.5-flash"
-    GEMINI_EMBED_MODEL: str = "models/text-embedding-004"
+    # text-embedding-004 has been retired from the v1beta endpoint and now 404s on
+    # embedContent; gemini-embedding-001 is its replacement.
+    GEMINI_EMBED_MODEL: str = "models/gemini-embedding-001"
+    # Must equal the Vector(...) width in models.py, which reads this value. The
+    # newer embedding models default to 3072 dims, so we request 768 explicitly --
+    # a mismatch makes every pgvector insert fail and silently degrade to TF-IDF.
+    EMBED_DIM: int = 768
+    # Similarity floor for pgvector cosine retrieval (embedding mode).
     RETRIEVAL_THRESHOLD: float = 0.85
+    # Separate, much lower floor for the TF-IDF fallback: sparse cosine scores are
+    # not comparable to dense-embedding cosine scores, so one number cannot serve
+    # both modes. Vague-but-valid clinical queries land around 0.11 here.
+    TFIDF_THRESHOLD: float = 0.10
     TOP_K: int = 5
     CHUNK_SIZE: int = 600
     CHUNK_OVERLAP: int = 100

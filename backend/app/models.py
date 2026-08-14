@@ -6,6 +6,7 @@ from sqlalchemy import Column, String, Text, Integer, DateTime, ForeignKey, Floa
 from sqlalchemy.orm import declarative_base, relationship
 from sqlalchemy.sql import func
 from pgvector.sqlalchemy import Vector
+from app.config import settings
 
 Base = declarative_base()
 
@@ -34,9 +35,20 @@ class Chunk(Base):
     doc_title = Column(String, nullable=False)
     page = Column(Integer, nullable=False)
     text = Column(Text, nullable=False)
-    # 768 for Gemini text-embedding-004, 1536 for others — use 768
-    embedding = Column(Vector(768))
+    # Width comes from settings.EMBED_DIM so the column and the value we ask the
+    # embedding API for cannot drift; a mismatch fails every insert and silently
+    # degrades retrieval to TF-IDF.
+    embedding = Column(Vector(settings.EMBED_DIM))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
-# Index for fast cosine search
-# CREATE INDEX ON chunks USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
+    # Without this, every similarity query is a sequential scan over all chunks.
+    # It previously existed only as a comment, so it was never actually created.
+    __table_args__ = (
+        Index(
+            "ix_chunks_embedding_cosine",
+            "embedding",
+            postgresql_using="ivfflat",
+            postgresql_with={"lists": 100},
+            postgresql_ops={"embedding": "vector_cosine_ops"},
+        ),
+    )

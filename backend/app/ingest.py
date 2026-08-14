@@ -2,19 +2,29 @@
 Production ingest: PyMuPDF + tiktoken chunking + Gemini embeddings + pgvector
 Runs as FastAPI BackgroundTasks so 100-page PDF never blocks request.
 """
-import uuid, time
+import uuid, time, logging
 import fitz  # PyMuPDF
 from typing import List
 from app.config import settings
 from app.db import upsert_chunks, upsert_chunk_with_embedding
 
-# In-memory job store for $0 (replace with Redis/Celery in scaled prod)
+logger = logging.getLogger("aura.ingest")
+
+# In-memory job store for $0 (replace with Redis/Celery in scaled prod).
+# Not shared across workers and lost on restart -- fine for a single-instance demo.
 _jobs: dict = {}  # job_id -> {status, doc_title, pages, chunks, error, created_at}
+_MAX_JOBS = 200  # bound the dict so a long-running instance cannot leak memory
 
 def chunk_text(text: str, size: int = None, overlap: int = None) -> List[str]:
     size = size or settings.CHUNK_SIZE
     overlap = overlap or settings.CHUNK_OVERLAP
-    # tiktoken-aware would be better; word split keeps $0 demo simple and deterministic
+    # word split keeps the $0 demo simple and deterministic
+    size = max(1, size)
+    # An overlap >= size makes the stride <= 0 and the loop below never terminates,
+    # hanging the ingest thread and growing `chunks` until the process dies. Both
+    # values come from env, so clamp rather than trust them.
+    overlap = min(max(0, overlap), size - 1)
+    step = size - overlap
     words = text.split()
     chunks = []
     i = 0
@@ -22,34 +32,77 @@ def chunk_text(text: str, size: int = None, overlap: int = None) -> List[str]:
         chunk = " ".join(words[i:i+size])
         if len(chunk.strip()) > 50:
             chunks.append(chunk)
-        i += size - overlap
+        i += step
     return chunks
 
+_EMBED_BATCH = 100
+
+
+def _embed_call(genai, content):
+    """Request EMBED_DIM-wide vectors, tolerating clients without the parameter.
+
+    gemini-embedding-001 returns 3072 dims by default while the chunks.embedding
+    column is EMBED_DIM wide, so the width has to be requested explicitly. Older
+    google-generativeai releases do not accept output_dimensionality, hence the
+    retry rather than a hard dependency on a newer client.
+    """
+    try:
+        return genai.embed_content(
+            model=settings.GEMINI_EMBED_MODEL,
+            content=content,
+            output_dimensionality=settings.EMBED_DIM,
+        )
+    except TypeError:
+        return genai.embed_content(model=settings.GEMINI_EMBED_MODEL, content=content)
+
 def _embed_texts(texts: List[str]) -> List[List[float]]:
-    """Try Gemini embeddings, fallback to None (TF-IDF will be used)"""
-    if not settings.GEMINI_API_KEY:
+    """Embed with Gemini; fall back to None per batch (TF-IDF is used for those)."""
+    if not settings.GEMINI_API_KEY or not texts:
         return [None] * len(texts)
     try:
         import google.generativeai as genai
         genai.configure(api_key=settings.GEMINI_API_KEY)
-        # batch via single call per chunk (free tier friendly)
-        vectors = []
-        for t in texts:
-            res = genai.embed_content(model=settings.GEMINI_EMBED_MODEL, content=t)
-            vectors.append(res["embedding"])
-        return vectors
     except Exception as e:
-        print(f"[ingest] embedding failed, fallback to TF-IDF: {e}")
+        logger.warning("embeddings unavailable, falling back to TF-IDF: %s", e)
         return [None] * len(texts)
+
+    vectors: List[List[float]] = []
+    # embed_content accepts a list, so send batches instead of one request per
+    # chunk. A 100-page PDF was previously thousands of serial calls, which blows
+    # straight through Gemini's free-tier rate limit and then silently discarded
+    # every embedding because one failure returned None for the entire document.
+    for start in range(0, len(texts), _EMBED_BATCH):
+        batch = texts[start:start + _EMBED_BATCH]
+        try:
+            res = _embed_call(genai, batch)
+            emb = res["embedding"]
+            # Single-item calls return a flat vector rather than a list of vectors.
+            if emb and not isinstance(emb[0], (list, tuple)):
+                emb = [emb]
+            if len(emb) != len(batch):
+                raise ValueError(f"expected {len(batch)} embeddings, got {len(emb)}")
+            vectors.extend(emb)
+        except Exception as e:
+            # Only this batch degrades to TF-IDF, not the whole document.
+            logger.warning("embedding batch %d-%d failed, using TF-IDF for it: %s",
+                           start, start + len(batch), e)
+            vectors.extend([None] * len(batch))
+    return vectors
 
 def ingest_pdf_sync(file_bytes: bytes, filename: str, job_id: str = None):
     """Synchronous ingest used by BackgroundTasks"""
     doc_title = filename
     if job_id:
         _jobs[job_id] = {"status": "processing", "doc_title": doc_title, "pages": 0, "chunks": 0, "created_at": time.time()}
+    doc = None
     try:
         doc = fitz.open(stream=file_bytes, filetype="pdf")
         doc_title = filename
+        # One id for the whole document. This used to be generated per chunk, so a
+        # 40-chunk PDF produced 40 distinct doc_ids and GET /api/v1/documents -- which
+        # groups by doc_id -- listed every chunk as its own separate document.
+        doc_id = f"doc_{uuid.uuid4().hex[:6]}"
+        page_count = len(doc)
         new_chunks = []
         for page_num, page in enumerate(doc, 1):
             text = page.get_text() or ""
@@ -58,7 +111,7 @@ def ingest_pdf_sync(file_bytes: bytes, filename: str, job_id: str = None):
             for chunk in chunk_text(text):
                 new_chunks.append({
                     "id": f"chk_{uuid.uuid4().hex[:8]}",
-                    "doc_id": f"doc_{uuid.uuid4().hex[:6]}",
+                    "doc_id": doc_id,
                     "doc_title": doc_title,
                     "page": page_num,
                     "text": chunk.strip(),
@@ -66,19 +119,39 @@ def ingest_pdf_sync(file_bytes: bytes, filename: str, job_id: str = None):
         # embed and upsert (vector if available, else plain)
         texts = [c["text"] for c in new_chunks]
         vectors = _embed_texts(texts)
+        embedded = 0
+        plain = []
         for chunk, vec in zip(new_chunks, vectors):
             if vec:
                 upsert_chunk_with_embedding(chunk, vec)
+                embedded += 1
             else:
-                upsert_chunks([chunk])
-        result = {"doc_title": doc_title, "pages": len(doc), "chunks": len(new_chunks)}
+                plain.append(chunk)
+        if plain:
+            # One batched write rather than a session + commit per chunk.
+            upsert_chunks(plain)
+        result = {
+            "doc_id": doc_id,
+            "doc_title": doc_title,
+            "pages": page_count,
+            "chunks": len(new_chunks),
+            "embedded": embedded,
+        }
         if job_id:
             _jobs[job_id].update({"status": "completed", **result})
+        logger.info("ingest complete: %s pages=%d chunks=%d embedded=%d",
+                    doc_title, page_count, len(new_chunks), embedded)
         return result
     except Exception as e:
+        # BackgroundTasks discards exceptions, so without this the job row is the
+        # only trace a failure ever leaves.
+        logger.exception("ingest failed for %s", filename)
         if job_id:
             _jobs[job_id].update({"status": "failed", "error": str(e)})
         raise
+    finally:
+        if doc is not None:
+            doc.close()
 
 def ingest_pdf(file_bytes: bytes, filename: str):
     """Legacy sync wrapper (keeps old tests working)"""
@@ -86,6 +159,10 @@ def ingest_pdf(file_bytes: bytes, filename: str):
 
 def create_job() -> str:
     jid = f"job_{uuid.uuid4().hex[:8]}"
+    if len(_jobs) >= _MAX_JOBS:
+        # Drop the oldest completed jobs; the dict is otherwise unbounded.
+        for old in sorted(_jobs, key=lambda k: _jobs[k].get("created_at", 0))[:_MAX_JOBS // 2]:
+            _jobs.pop(old, None)
     _jobs[jid] = {"status": "queued", "created_at": time.time()}
     return jid
 
