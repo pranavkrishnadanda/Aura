@@ -6,7 +6,7 @@ from sse_starlette.sse import EventSourceResponse
 from app.config import settings
 from app.schemas import ChatRequest, ThreadCreate
 from app.db import create_thread, list_threads, get_thread, get_messages, add_message, get_chunk, list_chunks, try_pg_connection, db_error, storage_mode
-from app.rag import retrieve, generate_answer, effective_threshold, retrieval_mode
+from app.rag import retrieve_async, generate_answer, effective_threshold, retrieval_mode
 from app.auth import get_current_user
 from slowapi import Limiter
 from slowapi.util import get_remote_address
@@ -203,7 +203,7 @@ async def chat_stream(request: Request, body: ChatRequest, user=Depends(get_curr
         expand_query = query
     else:
         expand_query = query
-        history = get_messages(body.thread_id)
+        history = await asyncio.to_thread(get_messages, body.thread_id)
         low = query.lower().strip()
         is_anaphora = any(p in low for p in ["that ", "this ", "it ", "contraindication", "dosage", "dose"])
         is_short_followup = is_anaphora and len(low.split()) <= 12 and len(history) > 0
@@ -225,7 +225,7 @@ async def chat_stream(request: Request, body: ChatRequest, user=Depends(get_curr
                         break
             if ctx:
                 expand_query = f"{ctx} {query}"
-        retrieved = retrieve(expand_query, top_k=top_k)
+        retrieved = await retrieve_async(expand_query, top_k=top_k)
         thresh = effective_threshold()
         filtered = [(c,s) for c,s in retrieved if s >= thresh]
         is_refusal = False  # product: boundary handled by AI
