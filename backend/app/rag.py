@@ -230,8 +230,11 @@ async def generate_answer(query: str, retrieved: List[Tuple[dict, float]]):
                         yield delta
                         await asyncio.sleep(0.01)
                 return
-        except Exception:
-            pass
+        except Exception as e:
+            # Falling back to the canned boundary text is correct here, but silence
+            # made a persistently broken provider indistinguishable from normal
+            # out-of-scope handling.
+            logger.warning("boundary rephrase via %s failed, using canned text: %s", provider, e)
         async for tok in stream_mock(boundary):
             yield tok
         return

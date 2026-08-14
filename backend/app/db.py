@@ -81,8 +81,15 @@ def _init_engine():
             try:
                 conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
                 conn.commit()
-            except Exception:
-                pass
+            except Exception as e:
+                # Managed Postgres often refuses CREATE EXTENSION to non-superusers.
+                # Worth continuing -- the extension may already be enabled -- but not
+                # worth hiding: without pgvector the Vector column cannot be created,
+                # create_all below fails, and the whole app drops to in-memory.
+                logger.warning(
+                    "could not ensure pgvector extension (%s); enable it manually if "
+                    "table creation fails", e,
+                )
         # create tables if not exist
         Base.metadata.create_all(bind=_engine)
         _SessionLocal = sessionmaker(bind=_engine, autocommit=False, autoflush=False)
@@ -113,6 +120,19 @@ def _init_engine():
 
 _init_engine()
 
+def _db_op_failed(op: str, exc: Exception) -> None:
+    """Report a failed DB operation on a database we believe is up.
+
+    Every function below catches broadly and then writes to the in-memory dicts.
+    That is correct when Postgres was never reachable, but when the engine IS live
+    a failure means the write silently went to RAM instead of the database while
+    the caller was told it succeeded -- so some rows are in Postgres and some are
+    not, with nothing recorded anywhere. Log those loudly; they are bugs, not
+    fallback.
+    """
+    logger.error("db operation %s failed against a live engine, value went to memory only: %s", op, exc)
+
+
 def is_db_available() -> bool:
     return _db_available
 
@@ -130,7 +150,10 @@ def try_pg_connection() -> bool:
         with _engine.connect() as conn:
             conn.execute(text("SELECT 1"))
         return True
-    except Exception:
+    except Exception as e:
+        # Returning False is the intended signal here, but record why so a probe
+        # flapping between ok and degraded is diagnosable.
+        logger.warning("pg liveness check failed: %s", e)
         return False
 
 # ---- Thread ops ----
@@ -151,8 +174,8 @@ def create_thread(title: str = "New consultation", user_id: str = "anonymous",
                 s.add(Thread(id=tid, title=title, user_id=user_id))
                 s.commit()
                 return {"id": tid, "title": title, "created_at": now, "user_id": user_id}
-        except Exception:
-            pass
+        except Exception as e:
+            _db_op_failed("create_thread", e)
     t = {"id": tid, "title": title, "created_at": now, "user_id": user_id}
     _threads[tid] = t
     _messages[tid] = []
@@ -167,8 +190,8 @@ def list_threads(user_id: Optional[str] = None):
                     q = q.filter(Thread.user_id == user_id)
                 q = q.order_by(Thread.created_at.desc()).limit(100)
                 return [{"id": t.id, "title": t.title, "created_at": t.created_at.isoformat() + "Z" if t.created_at else "", "user_id": t.user_id} for t in q.all()]
-        except Exception:
-            pass
+        except Exception as e:
+            _db_op_failed("list_threads", e)
     # fallback
     vals = list(_threads.values())
     if user_id:
@@ -182,8 +205,8 @@ def get_thread(tid: str):
                 t = s.query(Thread).filter(Thread.id == tid).first()
                 if t:
                     return {"id": t.id, "title": t.title, "created_at": t.created_at.isoformat() + "Z" if t.created_at else "", "user_id": t.user_id}
-        except Exception:
-            pass
+        except Exception as e:
+            _db_op_failed("get_thread", e)
     return _threads.get(tid)
 
 def add_message(tid: str, role: str, content: str, citations=None):
@@ -199,8 +222,8 @@ def add_message(tid: str, role: str, content: str, citations=None):
                 s.add(Message(id=f"msg_{uuid.uuid4().hex[:8]}", thread_id=tid, role=role, content=content, citations=citations_json))
                 s.commit()
                 return
-        except Exception:
-            pass
+        except Exception as e:
+            _db_op_failed("add_message", e)
     if tid not in _messages:
         _messages[tid] = []
     _messages[tid].append({"role": role, "content": content, "citations": citations or [], "ts": time.time()})
@@ -211,8 +234,8 @@ def get_messages(tid: str):
             with _SessionLocal() as s:
                 msgs = s.query(Message).filter(Message.thread_id == tid).order_by(Message.created_at.asc()).all()
                 return [{"role": m.role, "content": m.content, "citations": json.loads(m.citations) if m.citations else [], "ts": m.created_at.timestamp() if m.created_at else 0} for m in msgs]
-        except Exception:
-            pass
+        except Exception as e:
+            _db_op_failed("get_messages", e)
     return _messages.get(tid, [])
 
 def list_chunks():
@@ -222,8 +245,8 @@ def list_chunks():
                 rows = s.query(Chunk).all()
                 if rows:
                     return [{"id": r.id, "doc_id": r.doc_id, "doc_title": r.doc_title, "page": r.page, "text": r.text} for r in rows]
-        except Exception:
-            pass
+        except Exception as e:
+            _db_op_failed("list_chunks", e)
     return list(_chunks.values())
 
 def get_chunk(cid: str):
@@ -233,8 +256,8 @@ def get_chunk(cid: str):
                 r = s.query(Chunk).filter(Chunk.id == cid).first()
                 if r:
                     return {"id": r.id, "doc_id": r.doc_id, "doc_title": r.doc_title, "page": r.page, "text": r.text}
-        except Exception:
-            pass
+        except Exception as e:
+            _db_op_failed("get_chunk", e)
     return _chunks.get(cid)
 
 def upsert_chunks(docs: List[dict]):
@@ -252,8 +275,8 @@ def upsert_chunks(docs: List[dict]):
                         s.add(Chunk(id=d["id"], doc_id=d["doc_id"], doc_title=d["doc_title"], page=d["page"], text=d["text"]))
                 s.commit()
                 return
-        except Exception:
-            pass
+        except Exception as e:
+            _db_op_failed("upsert_chunks", e)
     for d in docs:
         _chunks[d["id"]] = d
 
@@ -266,5 +289,5 @@ def upsert_chunk_with_embedding(chunk: dict, embedding: List[float]):
                 s.commit()
                 return
         except Exception as e:
-            print(f"[db] embedding insert failed, fallback: {e}")
+            _db_op_failed("upsert_chunk_with_embedding", e)
     _chunks[chunk["id"]] = chunk
