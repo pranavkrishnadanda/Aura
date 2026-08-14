@@ -4,12 +4,30 @@ Production DB: Postgres + pgvector (Supabase) with fallback to in-memory for loc
 - If DATABASE_URL unreachable, falls back to in-memory dicts (keeps `docker compose` working without Postgres)
 - Thread/Message/Chunk persisted, encrypted at rest via Supabase (pgsodium)
 """
-import uuid, time, json
+import uuid, time, json, logging
 from typing import List, Dict, Optional
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 from app.config import settings
 from app.models import Base, Thread, Message, Chunk
+
+logger = logging.getLogger("aura.db")
+
+
+def _normalize_db_url(url: str) -> str:
+    """Pin the driver to psycopg3, the only Postgres driver we actually ship.
+
+    A bare ``postgresql://`` URL makes SQLAlchemy resolve the *psycopg2* dialect,
+    which is not in requirements.txt. Locally that silently works (psycopg2 gets
+    pulled into the dev venv), but on a clean install it raises ModuleNotFoundError,
+    which _init_engine swallows -- so the whole app quietly runs on in-memory dicts
+    with no database at all. Normalizing here keeps dev and prod on one driver.
+    """
+    if url.startswith("postgresql://"):
+        return url.replace("postgresql://", "postgresql+psycopg://", 1)
+    if url.startswith("postgres://"):  # Heroku/Supabase-style legacy scheme
+        return url.replace("postgres://", "postgresql+psycopg://", 1)
+    return url
 
 # In-memory fallback (preserves demo without DB)
 _threads: Dict[str, dict] = {}
@@ -47,12 +65,13 @@ for c in SEED_CHUNKS:
 _engine = None
 _SessionLocal = None
 _db_available = False
+_db_error: Optional[str] = None  # surfaced by /health so a failed DB is never silent
 
 def _init_engine():
-    global _engine, _SessionLocal, _db_available
+    global _engine, _SessionLocal, _db_available, _db_error
     try:
         _engine = create_engine(
-            settings.DATABASE_URL,
+            _normalize_db_url(settings.DATABASE_URL),
             pool_size=10, max_overflow=20, pool_pre_ping=True, pool_timeout=10,
             connect_args={"connect_timeout": 5}
         )
@@ -68,6 +87,7 @@ def _init_engine():
         Base.metadata.create_all(bind=_engine)
         _SessionLocal = sessionmaker(bind=_engine, autocommit=False, autoflush=False)
         _db_available = True
+        _db_error = None
         # seed if empty
         try:
             with _SessionLocal() as s:
@@ -76,16 +96,32 @@ def _init_engine():
                     for c in SEED_CHUNKS:
                         s.add(Chunk(id=c["id"], doc_id=c["doc_id"], doc_title=c["doc_title"], page=c["page"], text=c["text"]))
                     s.commit()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("seed skipped: %s", e)
     except Exception as e:
-        print(f"[db] Postgres unavailable, using in-memory fallback: {e}")
+        # This fallback means NOTHING is persisted: threads, messages and uploaded
+        # documents live in process memory, are shared by every caller, and vanish
+        # on restart. That is fine for a local demo and wrong everywhere else, so
+        # say so loudly rather than printing one line and carrying on.
+        _db_error = f"{type(e).__name__}: {e}"
         _db_available = False
+        logger.error(
+            "DATABASE UNAVAILABLE -- falling back to EPHEMERAL IN-MEMORY storage. "
+            "Nothing will be persisted and all users share one dataset. Cause: %s",
+            _db_error,
+        )
 
 _init_engine()
 
 def is_db_available() -> bool:
     return _db_available
+
+def db_error() -> Optional[str]:
+    """Why the DB is unavailable, or None when it is healthy."""
+    return _db_error
+
+def storage_mode() -> str:
+    return "postgres" if _db_available else "in-memory (ephemeral)"
 
 def try_pg_connection() -> bool:
     if not _db_available or not _engine:

@@ -1,11 +1,11 @@
 import asyncio, json, time, uuid, logging
-from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks, Depends, Request
+from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks, Depends, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sse_starlette.sse import EventSourceResponse
 from app.config import settings
 from app.schemas import ChatRequest, ThreadCreate
-from app.db import create_thread, list_threads, get_thread, get_messages, add_message, get_chunk, list_chunks, try_pg_connection
+from app.db import create_thread, list_threads, get_thread, get_messages, add_message, get_chunk, list_chunks, try_pg_connection, db_error, storage_mode
 from app.rag import retrieve, generate_answer, effective_threshold
 from app.auth import get_current_user
 from slowapi import Limiter
@@ -45,23 +45,34 @@ async def log_requests(request: Request, call_next):
     response.headers["X-Response-Time"] = f"{elapsed:.1f}ms"
     return response
 
+_STARTED_AT = time.time()
+
 @app.get("/health")
 def health():
+    pg = try_pg_connection()
     return {
-        "status": "ok",
+        # Degraded, not "ok", when we are silently running without a database.
+        "status": "ok" if pg else "degraded",
         "version": "1.0.0",
         "provider": settings.LLM_PROVIDER,
         "threshold": effective_threshold(),
         "configured_threshold": settings.RETRIEVAL_THRESHOLD,
-        "pg_reachable": try_pg_connection(),
-        "uptime": time.time(),
+        "pg_reachable": pg,
+        "storage_mode": storage_mode(),
+        "db_error": db_error(),
+        "uptime_seconds": round(time.time() - _STARTED_AT, 1),
     }
 
 @app.get("/ready")
-def ready():
-    # For k8s/Render health checks
+def ready(response: Response):
+    # For k8s/Render health checks. This must be able to report NOT ready --
+    # returning a hardcoded True made the probe (and its test) meaningless.
     pg = try_pg_connection()
-    return {"ready": True, "pg": pg, "llm": bool(settings.GEMINI_API_KEY or settings.GROQ_API_KEY or settings.LLM_PROVIDER == "mock")}
+    llm = bool(settings.GEMINI_API_KEY or settings.GROQ_API_KEY or settings.LLM_PROVIDER == "mock")
+    is_ready = pg and llm
+    if not is_ready:
+        response.status_code = 503
+    return {"ready": is_ready, "pg": pg, "llm": llm, "db_error": db_error()}
 
 # ---- Threads ----
 @app.post("/api/v1/threads")
