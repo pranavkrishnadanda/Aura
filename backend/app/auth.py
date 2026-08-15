@@ -46,7 +46,7 @@ def _user_id_for(key: str) -> str:
     return "usr_" + hashlib.sha256(key.encode()).hexdigest()[:16]
 
 
-async def get_current_user(x_api_key: Optional[str] = Header(None)):
+async def get_current_user(x_api_key: Optional[str] = Header(None)) -> dict:
     if not settings.ENABLE_AUTH:
         return ANONYMOUS
 

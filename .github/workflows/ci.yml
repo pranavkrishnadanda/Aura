@@ -133,12 +133,24 @@ jobs:
       - name: Install
         working-directory: frontend
         run: npm ci
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Install backend (for the integrated project)
+        working-directory: backend
+        run: uv sync
       - name: Install browsers
         working-directory: frontend
         run: npx playwright install --with-deps chromium
-      - name: Run
+      - name: Stubbed specs
         working-directory: frontend
-        run: npx playwright test --project=chromium
+        run: npx playwright test --project=chromium --project=mobile
+      # No stubs: a real browser against the real FastAPI process. The stubbed
+      # projects encode whatever the frontend already expects, so a contract
+      # mismatch between the two halves is invisible to them.
+      - name: Integrated specs (real backend)
+        working-directory: frontend
+        run: npx playwright test --project=integrated
       - uses: actions/upload-artifact@v4
         if: failure()
         with:

@@ -6,7 +6,9 @@ from sse_starlette.sse import EventSourceResponse
 from app.config import settings
 from app.schemas import ChatRequest, ThreadCreate
 from app.db import create_thread, list_threads, get_thread, get_messages, add_message, get_chunk, list_chunks, try_pg_connection, db_error, storage_mode
-from app.rag import retrieve_async, generate_answer, effective_threshold, retrieval_mode, build_context, validate_citations, CITATION_RE
+from app.rag import (retrieve_async, generate_answer, effective_threshold, retrieval_mode,
+                     build_context, build_citations, expand_followup, validate_citations,
+                     is_greeting, CITATION_RE)
 from app.auth import get_current_user
 from slowapi import Limiter
 from slowapi.util import get_remote_address
@@ -196,81 +198,55 @@ def get_job_status(request: Request, job_id: str):
         raise HTTPException(404, "Job not found")
     return {"job_id": job_id, **job}
 
-# ---- Streaming Chat (production hardening) ----
-@app.post("/api/v1/chat/stream")
-@limiter.limit(settings.RATE_LIMIT_ANON)
-async def chat_stream(request: Request, body: ChatRequest, user=Depends(get_current_user)):
+
+def _validated_query(body: ChatRequest) -> str:
+    """Trim and bounds-check the question."""
     query = (body.message or "").strip()
     if not query:
         raise HTTPException(400, "Message empty")
     if len(query) > settings.MAX_MESSAGE_LENGTH:
         raise HTTPException(400, f"Message too long (max {settings.MAX_MESSAGE_LENGTH})")
-    # Basic injection guard
-    if len(query.split()) < 1:
-        raise HTTPException(400, "Invalid query")
-    top_k = min(body.top_k or settings.TOP_K, 10)
-    # Ensure the thread the client referenced actually exists under that id, and
-    # that it belongs to the caller before appending to it.
-    if not get_thread(body.thread_id):
-        create_thread(title=body.thread_id, user_id=user["user_id"], thread_id=body.thread_id)
-    else:
-        _assert_thread_access(body.thread_id, user)
+    return query
 
-    # Greeting bypass
-    from app.rag import is_greeting
-    if is_greeting(query):
-        retrieved = []
-        filtered = []
-        is_refusal = False
-        citations = []
-        expand_query = query
+
+def _ensure_thread(thread_id: str, user: dict) -> None:
+    """Materialise the referenced thread, or verify the caller owns it."""
+    if not get_thread(thread_id):
+        create_thread(title=thread_id, user_id=user["user_id"], thread_id=thread_id)
     else:
-        expand_query = query
+        _assert_thread_access(thread_id, user)
+
+
+async def _retrieve_or_503(query: str, top_k: int) -> list:
+    """Retrieve, failing before the stream opens if the corpus is unavailable.
+
+    Answering from a stale or partial corpus -- or emitting the out-of-scope
+    text -- would present a backend outage as a normal result.
+    """
+    try:
+        return await retrieve_async(query, top_k=top_k)
+    except Exception as e:
+        logger.error("retrieval unavailable: %s", e)
+        raise HTTPException(503, "Knowledge base is temporarily unavailable. Please retry.")
+
+
+# ---- Streaming Chat (production hardening) ----
+@app.post("/api/v1/chat/stream")
+@limiter.limit(settings.RATE_LIMIT_ANON)
+async def chat_stream(request: Request, body: ChatRequest, user=Depends(get_current_user)):
+    query = _validated_query(body)
+    top_k = min(body.top_k or settings.TOP_K, 10)
+    _ensure_thread(body.thread_id, user)
+
+    if is_greeting(query):
+        # Greetings skip retrieval entirely: there is nothing to ground.
+        expand_query, retrieved, citations = query, [], []
+    else:
         history = await asyncio.to_thread(get_messages, body.thread_id)
-        low = query.lower().strip()
-        is_anaphora = any(p in low for p in ["that ", "this ", "it ", "contraindication", "dosage", "dose"])
-        is_short_followup = is_anaphora and len(low.split()) <= 12 and len(history) > 0
-        if is_short_followup:
-            # Pick last *clinical* user message (the one that had citations), not the hair boundary
-            ctx = ""
-            for idx in range(len(history)-1, -1, -1):
-                if history[idx].get("role") == "user":
-                    # check if following assistant had citations
-                    nxt = history[idx+1] if idx+1 < len(history) else None
-                    if nxt and nxt.get("citations"):
-                        ctx = history[idx]["content"]
-                        break
-            if not ctx:
-                # fallback: last user message with medical keyword
-                for m in reversed(history):
-                    if m.get("role") == "user" and any(k in m["content"].lower() for k in ["hypertension","ckd","lisinopril","arb","creatinine","enoxaparin"]):
-                        ctx = m["content"]
-                        break
-            if ctx:
-                expand_query = f"{ctx} {query}"
-        try:
-            retrieved = await retrieve_async(expand_query, top_k=top_k)
-        except Exception as e:
-            # Fail before the stream opens. Answering from a stale or partial
-            # corpus, or emitting the out-of-scope boundary text, would both
-            # misrepresent a backend outage as a normal result.
-            logger.error("retrieval unavailable: %s", e)
-            raise HTTPException(503, "Knowledge base is temporarily unavailable. Please retry.")
-        thresh = effective_threshold()
-        # Derive the UI's citation list from the same numbering the model is given,
-        # so a marker the model writes always resolves to a citation the UI holds.
-        # These were numbered independently and drifted apart whenever a chunk fell
-        # below threshold.
-        _, kept = build_context(retrieved, thresh)
-        scores = {id(c): s for c, s in retrieved}
-        filtered = [(c, scores[id(c)]) for c in kept]
-        is_refusal = False  # product: boundary handled by AI
-        citations = [
-            {"id": chunk["id"], "doc_id": chunk["doc_id"], "doc_title": chunk["doc_title"],
-             "page": chunk["page"], "chunk_text": chunk["text"],
-             "score": round(float(scores[id(chunk)]), 3), "idx": i}
-            for i, chunk in enumerate(kept, 1)
-        ]
+        expand_query = expand_followup(query, history)
+        retrieved = await _retrieve_or_503(expand_query, top_k)
+        citations = build_citations(retrieved, effective_threshold())
+    is_refusal = False  # product: the boundary response is generated, not flagged
 
     # Don't log PHI
     if settings.LOG_QUERIES:

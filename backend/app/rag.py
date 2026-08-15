@@ -203,6 +203,67 @@ def build_context(retrieved: List[Tuple[dict, float]], thresh: float) -> Tuple[s
     return "\n".join(parts), kept
 
 
+# Demonstratives and pronouns only. "dose", "dosage" and "contraindication" were
+# treated as back-references too, which is wrong: they are topics. That made a
+# self-contained question like "recommended enoxaparin dose for VTE prophylaxis?"
+# get prefixed with whatever was asked previously, so retrieval ran against the
+# wrong subject and answered a question nobody asked.
+ANAPHORA_CUES = re.compile(r"\b(that|this|those|these|it|they|them|its|their)\b", re.I)
+_CLINICAL_HINTS = ("hypertension", "ckd", "lisinopril", "arb", "creatinine", "enoxaparin")
+_MAX_FOLLOWUP_WORDS = 12
+
+
+def expand_followup(query: str, history: List[dict]) -> str:
+    """Prefix a short follow-up with the clinical question it refers back to.
+
+    "Are there contraindications for that dosage?" retrieves nothing on its own,
+    because the subject lives in the previous turn. The earlier question is
+    prepended so retrieval has something to match.
+
+    Only the last user turn that produced a *cited* answer is used, so an
+    intervening out-of-scope question does not become the context. This is a
+    heuristic and it is deliberately conservative: it fires only for short queries
+    containing an explicit back-reference, since prepending the wrong subject
+    silently answers a question the clinician did not ask.
+    """
+    low = query.lower().strip()
+    if not history or len(low.split()) > _MAX_FOLLOWUP_WORDS:
+        return query
+    if not ANAPHORA_CUES.search(low):
+        return query
+
+    # Prefer the last user turn whose answer carried citations.
+    for i in range(len(history) - 1, -1, -1):
+        if history[i].get("role") != "user":
+            continue
+        nxt = history[i + 1] if i + 1 < len(history) else None
+        if nxt and nxt.get("citations"):
+            return f"{history[i]['content']} {query}"
+
+    # Otherwise the most recent user turn that looks clinical at all.
+    for m in reversed(history):
+        if m.get("role") == "user" and any(k in m.get("content", "").lower() for k in _CLINICAL_HINTS):
+            return f"{m['content']} {query}"
+    return query
+
+
+def build_citations(retrieved: List[Tuple[dict, float]], thresh: float) -> List[dict]:
+    """The citation payload sent to the client.
+
+    Numbering comes from build_context(), the same pass that numbers the markers
+    the model is told to use, so a marker the model writes always resolves to a
+    citation the client holds. Numbering these independently is what let them
+    drift apart.
+    """
+    _, kept = build_context(retrieved, thresh)
+    scores = {id(chunk): score for chunk, score in retrieved}
+    return [
+        {"id": c["id"], "doc_id": c["doc_id"], "doc_title": c["doc_title"], "page": c["page"],
+         "chunk_text": c["text"], "score": round(float(scores[id(c)]), 3), "idx": i}
+        for i, c in enumerate(kept, 1)
+    ]
+
+
 def out_of_scope_message(query: str) -> str:
     """The single out-of-scope response.
 

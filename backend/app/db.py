@@ -67,7 +67,7 @@ _SessionLocal = None
 _db_available = False
 _db_error: Optional[str] = None  # surfaced by /health so a failed DB is never silent
 
-def _init_engine():
+def _init_engine() -> None:
     global _engine, _SessionLocal, _db_available, _db_error
     try:
         _engine = create_engine(
@@ -237,7 +237,7 @@ def create_thread(title: str = "New consultation", user_id: str = "anonymous",
     _messages[tid] = []
     return t
 
-def list_threads(user_id: Optional[str] = None):
+def list_threads(user_id: Optional[str] = None) -> List[dict]:
     if _db_available and _SessionLocal:
         try:
             with _SessionLocal() as s:
@@ -254,7 +254,7 @@ def list_threads(user_id: Optional[str] = None):
         vals = [v for v in vals if v.get("user_id") == user_id]
     return vals
 
-def get_thread(tid: str):
+def get_thread(tid: str) -> Optional[dict]:
     if _db_available and _SessionLocal:
         try:
             with _SessionLocal() as s:
@@ -265,7 +265,8 @@ def get_thread(tid: str):
             _db_op_failed("get_thread", e)
     return _threads.get(tid)
 
-def add_message(tid: str, role: str, content: str, citations=None, user_id: str = "anonymous"):
+def add_message(tid: str, role: str, content: str, citations: Optional[list] = None,
+                user_id: str = "anonymous") -> None:
     citations_json = json.dumps(citations or [])
     if _db_available and _SessionLocal:
         try:
@@ -288,7 +289,7 @@ def add_message(tid: str, role: str, content: str, citations=None, user_id: str 
         _messages[tid] = []
     _messages[tid].append({"role": role, "content": content, "citations": citations or [], "ts": time.time()})
 
-def get_messages(tid: str):
+def get_messages(tid: str) -> List[dict]:
     if _db_available and _SessionLocal:
         try:
             with _SessionLocal() as s:
@@ -298,7 +299,7 @@ def get_messages(tid: str):
             _db_op_failed("get_messages", e)
     return _messages.get(tid, [])
 
-def list_chunks():
+def list_chunks() -> List[dict]:
     """Return the retrieval corpus.
 
     Raises when the database is up but unreadable, rather than quietly returning
@@ -317,7 +318,7 @@ def list_chunks():
             raise RuntimeError("retrieval corpus is unavailable") from e
     return list(_chunks.values())
 
-def get_chunk(cid: str):
+def get_chunk(cid: str) -> Optional[dict]:
     if _db_available and _SessionLocal:
         try:
             with _SessionLocal() as s:

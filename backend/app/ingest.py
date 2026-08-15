@@ -4,7 +4,7 @@ Runs as FastAPI BackgroundTasks so 100-page PDF never blocks request.
 """
 import uuid, time, logging
 import fitz  # PyMuPDF
-from typing import List
+from typing import List, Optional
 from app.config import settings
 from app.db import upsert_chunks, upsert_chunk_with_embedding
 
@@ -41,7 +41,7 @@ def chunk_text(text: str, size: int = None, overlap: int = None) -> List[str]:
 _EMBED_BATCH = 100
 
 
-def _embed_call(genai, content):
+def _embed_call(genai, content) -> dict:
     """Request EMBED_DIM-wide vectors, tolerating clients without the parameter.
 
     gemini-embedding-001 returns 3072 dims by default while the chunks.embedding
@@ -92,7 +92,7 @@ def _embed_texts(texts: List[str]) -> List[List[float]]:
             vectors.extend([None] * len(batch))
     return vectors
 
-def ingest_pdf_sync(file_bytes: bytes, filename: str, job_id: str = None):
+def ingest_pdf_sync(file_bytes: bytes, filename: str, job_id: Optional[str] = None) -> dict:
     """Synchronous ingest used by BackgroundTasks"""
     doc_title = filename
     if job_id:
@@ -168,7 +168,7 @@ def ingest_pdf_sync(file_bytes: bytes, filename: str, job_id: str = None):
         if doc is not None:
             doc.close()
 
-def ingest_pdf(file_bytes: bytes, filename: str):
+def ingest_pdf(file_bytes: bytes, filename: str) -> dict:
     """Legacy sync wrapper (keeps old tests working)"""
     return ingest_pdf_sync(file_bytes, filename)
 
@@ -181,5 +181,5 @@ def create_job() -> str:
     _jobs[jid] = {"status": "queued", "created_at": time.time()}
     return jid
 
-def get_job(job_id: str):
+def get_job(job_id: str) -> Optional[dict]:
     return _jobs.get(job_id)

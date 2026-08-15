@@ -129,3 +129,87 @@ def test_is_greeting_false_for_whitespace_only():
 @pytest.mark.unit
 def test_is_greeting_false_for_greeting_word_embedded_in_longer_text():
     assert is_greeting("hello, can you help me with dosing for lisinopril") is False
+
+
+# ---------------------------------------------------------------------------
+# Follow-up expansion (extracted from the 128-line chat_stream handler)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.unit
+class TestExpandFollowup:
+    """A short back-reference retrieves nothing on its own, because its subject
+    lives in the previous turn. Prepending the wrong subject silently answers a
+    question the clinician did not ask, so the heuristic must stay conservative.
+    """
+
+    CITED = [
+        {"role": "user", "content": "First-line therapy for hypertension with CKD?"},
+        {"role": "assistant", "content": "ACE inhibitors [1]", "citations": [{"id": "a"}]},
+    ]
+
+    def test_short_backreference_is_prefixed_with_the_cited_question(self):
+        from app.rag import expand_followup
+        out = expand_followup("Are there contraindications for that dosage?", self.CITED)
+        assert out.startswith("First-line therapy for hypertension with CKD?")
+        assert "contraindications for that dosage" in out
+
+    def test_self_contained_question_is_left_alone(self):
+        from app.rag import expand_followup
+        q = "What is the recommended enoxaparin dose for VTE prophylaxis in COVID-19?"
+        assert expand_followup(q, self.CITED) == q
+
+    def test_long_query_is_left_alone_even_with_a_cue(self):
+        """Length is the guard against hijacking a fully-formed question."""
+        from app.rag import expand_followup
+        q = "Given this patient has severe renal impairment and a documented history " \
+            "of angioedema what alternative agents should be considered instead"
+        assert expand_followup(q, self.CITED) == q
+
+    def test_empty_history_is_left_alone(self):
+        from app.rag import expand_followup
+        assert expand_followup("what about that dose?", []) == "what about that dose?"
+
+    def test_uncited_turn_is_not_used_as_context(self):
+        """An intervening out-of-scope question must not become the subject.
+
+        Otherwise "what about that dose?" after a refusal would retrieve against
+        the refused topic.
+        """
+        from app.rag import expand_followup
+        history = self.CITED + [
+            {"role": "user", "content": "what do you know about hair problems"},
+            {"role": "assistant", "content": "That's outside what I can source.", "citations": []},
+        ]
+        out = expand_followup("what about that dose?", history)
+        assert "hair problems" not in out
+        assert out.startswith("First-line therapy for hypertension with CKD?")
+
+    def test_falls_back_to_a_clinical_turn_when_nothing_was_cited(self):
+        from app.rag import expand_followup
+        history = [{"role": "user", "content": "Tell me about lisinopril"},
+                   {"role": "assistant", "content": "no sources", "citations": []}]
+        assert expand_followup("what about that dose?", history).startswith("Tell me about lisinopril")
+
+    def test_no_cue_means_no_expansion(self):
+        from app.rag import expand_followup
+        assert expand_followup("enoxaparin", self.CITED) == "enoxaparin"
+
+    def test_topic_words_are_not_treated_as_backreferences(self):
+        """"dose"/"dosage"/"contraindication" are topics, not anaphora.
+
+        Treating them as back-references prefixed self-contained questions with
+        the previous subject, so retrieval ran against the wrong topic.
+        """
+        from app.rag import expand_followup
+        for q in [
+            "recommended enoxaparin dose for VTE prophylaxis?",
+            "lisinopril contraindication in pregnancy?",
+            "warfarin dosage adjustment renal?",
+        ]:
+            assert expand_followup(q, self.CITED) == q, q
+
+    def test_pronoun_inside_a_word_does_not_trigger(self):
+        """Substring matching on "it " matched words like "unit" and "exit"."""
+        from app.rag import expand_followup
+        q = "initiation criteria for unit transfer?"
+        assert expand_followup(q, self.CITED) == q
