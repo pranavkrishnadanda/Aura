@@ -2,11 +2,86 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Workbench typography: system stack with distinct hierarchy, not Inter-everywhere */
-:root { --accent:  #0f766e; /* teal-700, not purple */ }
-html { -webkit-font-smoothing: antialiased; }
-body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; color: #0f172a; background: #f8fafc; }
+/* Six values, each with exactly one job. Colour carries meaning here rather than
+   decorating: --source appears only on provenance, --flag only where something
+   could not be verified. Nothing else is coloured. */
+:root {
+  --paper: #fbfaf7;
+  --ink: #14161a;
+  --ink-soft: #5a6068;
+  --rule: #e4e1da;
+  --source: #2f4b7c;
+  --flag: #9a6b00;
+}
 
-/* subtle scrollbar for dense panels */
-*::-webkit-scrollbar { width: 6px; height: 6px; }
-*::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 9999px; }
+html {
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-system), ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* Authored prose. The one place the serif is used, so its presence always means
+   "a model wrote this" rather than "the system knows this". */
+.prose-clinical {
+  font-family: var(--font-prose), Georgia, serif;
+  font-size: 1.0625rem;
+  line-height: 1.65;
+  letter-spacing: 0.005em;
+}
+
+/* Small caps label used for structural headings. */
+.label {
+  font-size: 0.6875rem;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  font-weight: 500;
+}
+
+/* A citation marker in the prose, and its matching evidence card. Hovering or
+   focusing either raises both, which is the whole point of the layout: the claim
+   and its source are one object shown in two places. */
+.marker {
+  font-family: var(--font-system), monospace;
+  font-size: 0.75em;
+  font-weight: 500;
+  color: var(--source);
+  border-bottom: 1px solid color-mix(in srgb, var(--source) 35%, transparent);
+  padding: 0 0.1em;
+  vertical-align: 0.25em;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+.marker:hover,
+.marker:focus-visible,
+.marker[data-linked="true"] {
+  background: color-mix(in srgb, var(--source) 12%, transparent);
+  border-color: var(--source);
+  outline: none;
+}
+
+.evidence[data-linked="true"] {
+  border-color: var(--source);
+  box-shadow: inset 3px 0 0 var(--source);
+}
+
+:focus-visible {
+  outline: 2px solid var(--source);
+  outline-offset: 2px;
+}
+
+*::-webkit-scrollbar { width: 7px; height: 7px; }
+*::-webkit-scrollbar-thumb { background: var(--rule); border-radius: 9999px; }
+*::-webkit-scrollbar-track { background: transparent; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

@@ -1,37 +1,9 @@
 "use client";
 import { useState, useRef, useEffect } from "react";
 import { streamChat, API_URL, authHeaders } from "@/lib/api";
-import { Citation, Message } from "@/lib/types";
+import { Citation, CitationCheck, Message } from "@/lib/types";
 import CitationPanel from "./CitationPanel";
 import AdminUpload from "./AdminUpload";
-
-function InlineCitations({ text, citations, onCite }: { text: string; citations: Citation[]; onCite: (c: Citation) => void }) {
-  const parts = text.split(/(\[\d+\])/g);
-  return (
-    <>
-      {parts.map((p, i) => {
-        const m = p.match(/\[(\d+)\]/);
-        if (m) {
-          const idx = parseInt(m[1], 10);
-          const cite = citations.find((c) => c.idx === idx);
-          if (cite) {
-            return (
-              <button
-                key={i}
-                onClick={() => onCite(cite)}
-                className="mx-0.5 inline-flex items-center rounded-md border border-teal-200 bg-teal-50 px-1.5 py-0.5 text-xs font-medium text-teal-800 hover:bg-teal-100 hover:border-teal-300"
-                aria-label={`Open citation ${idx}`}
-              >
-                [{idx}]
-              </button>
-            );
-          }
-        }
-        return <span key={i}>{p}</span>;
-      })}
-    </>
-  );
-}
 
 /** Per-browser thread id, persisted so a reload resumes the same conversation.
  *
@@ -50,54 +22,142 @@ function initialThreadId(): string {
   return id;
 }
 
+/** Splits the model's prose on citation markers and renders each as a control
+ *  linked to its evidence card. A marker with no matching source is shown as
+ *  flagged text rather than a link -- it points at nothing. */
+function Prose({
+  text,
+  citations,
+  linked,
+  onLink,
+}: {
+  text: string;
+  citations: Citation[];
+  linked: number | null;
+  onLink: (idx: number | null) => void;
+}) {
+  const parts = text.split(/(\[\d+\])/g);
+  return (
+    <>
+      {parts.map((p, i) => {
+        const m = p.match(/^\[(\d+)\]$/);
+        if (!m) return <span key={i}>{p}</span>;
+        const idx = parseInt(m[1], 10);
+        const cite = citations.find((c) => c.idx === idx);
+        if (!cite) {
+          return (
+            <sup
+              key={i}
+              title="This reference does not match any retrieved source"
+              className="mx-0.5 font-medium"
+              style={{ color: "var(--flag)" }}
+            >
+              [{idx}?]
+            </sup>
+          );
+        }
+        return (
+          <button
+            key={i}
+            type="button"
+            className="marker"
+            data-linked={linked === idx ? "true" : "false"}
+            aria-label={`Open citation ${idx}`}
+            onMouseEnter={() => onLink(idx)}
+            onMouseLeave={() => onLink(null)}
+            onFocus={() => onLink(idx)}
+            onBlur={() => onLink(null)}
+            onClick={() => {
+              document.getElementById(`evidence-${idx}`)?.scrollIntoView({ block: "nearest" });
+              onLink(idx);
+            }}
+          >
+            [{idx}]
+          </button>
+        );
+      })}
+    </>
+  );
+}
+
+/** One line stating what the system can actually vouch for in this answer. */
+function Provenance({ citations, check }: { citations: Citation[]; check?: CitationCheck | null }) {
+  if (!citations.length) return null;
+  const bad = check?.invalid_markers?.length ?? 0;
+  const uncited = check && !check.cited;
+  return (
+    <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] tabular-nums">
+      <span style={{ color: "var(--ink-soft)" }}>
+        {citations.length} {citations.length === 1 ? "source" : "sources"}
+      </span>
+      {bad > 0 ? (
+        <span style={{ color: "var(--flag)" }}>
+          {bad} reference{bad === 1 ? "" : "s"} unmatched
+        </span>
+      ) : uncited ? (
+        <span style={{ color: "var(--flag)" }}>no reference given</span>
+      ) : (
+        <span style={{ color: "var(--source)" }}>all references resolve</span>
+      )}
+    </div>
+  );
+}
+
+const SUGGESTIONS = [
+  "First-line therapy for hypertension with CKD?",
+  "Contraindications for lisinopril?",
+  "Enoxaparin dosing for VTE prophylaxis?",
+];
+
 export default function Chat() {
   const [threadId, setThreadId] = useState("default");
+  const [sessionThread, setSessionThread] = useState("default");
   const [threads, setThreads] = useState<any[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
-  const [activeCite, setActiveCite] = useState<Citation | null>(null);
-  const [currentCitations, setCurrentCitations] = useState<Citation[]>([]);
+  const [linked, setLinked] = useState<number | null>(null);
+  const [health, setHealth] = useState<any>(null);
   const scroller = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   // Free-tier hosting sleeps after ~15 minutes idle, so the first request of the
   // day spends ~30s waking the container before a single token arrives. Without
-  // saying so the UI just sits on "streaming…" and reads as broken.
+  // saying so the UI just sits there and reads as broken.
   const [waking, setWaking] = useState(false);
+  const [railOpen, setRailOpen] = useState(false);
   const wakeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // This browser's own session thread, used by the "Default session" entry.
-  const [sessionThread, setSessionThread] = useState("default");
 
   useEffect(() => { scroller.current?.scrollTo(0, scroller.current.scrollHeight); }, [messages, streaming]);
-  useEffect(() => {
-    fetch(`${API_URL}/api/v1/threads`, { headers: authHeaders() })
-      .then((r) => r.json())
-      // The list is rendered with .map, so a non-array error body would crash the
-      // sidebar rather than just leaving it empty.
-      .then((d) => setThreads(Array.isArray(d) ? d : []))
-      .catch(() => {});
-  }, []);
 
-  // Assign this browser its own thread after mount, so server and client render
-  // the same markup on the first pass.
   useEffect(() => {
     const id = initialThreadId();
     setSessionThread(id);
     setThreadId(id);
   }, []);
 
-  // Abandon any in-flight stream when the component goes away, otherwise it keeps
-  // reading and calling setState on an unmounted tree.
+  useEffect(() => {
+    fetch(`${API_URL}/api/v1/threads`, { headers: authHeaders() })
+      .then((r) => r.json())
+      // The list is rendered with .map, so a non-array error body would crash the
+      // rail rather than just leaving it empty.
+      .then((d) => setThreads(Array.isArray(d) ? d : []))
+      .catch(() => {});
+    // Retrieval mode is reported rather than assumed: the app answers from
+    // embeddings or from keyword matching depending on what is actually available,
+    // and a demo should not imply the former while doing the latter.
+    fetch(`${API_URL}/health`).then((r) => r.json()).then(setHealth).catch(() => {});
+  }, []);
+
   useEffect(() => () => abortRef.current?.abort(), []);
 
   async function newThread() {
     const r = await fetch(`${API_URL}/api/v1/threads`, {
       method: "POST", headers: { "Content-Type": "application/json", ...authHeaders() },
-      body: JSON.stringify({ title: `Consult — ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` }),
+      body: JSON.stringify({ title: `Consult ${new Date().toLocaleDateString()}` }),
     });
     const t = await r.json();
     setThreads((prev) => [t, ...prev]);
-    setThreadId(t.id); setMessages([]); setCurrentCitations([]); setActiveCite(null);
+    setThreadId(t.id); setMessages([]);
   }
 
   async function openThread(id: string) {
@@ -105,15 +165,12 @@ export default function Chat() {
     // its tokens land in the newly opened conversation.
     abortRef.current?.abort();
     setStreaming(false);
-    setThreadId(id); setActiveCite(null); setCurrentCitations([]);
+    setThreadId(id);
+    setRailOpen(false);
     try {
       const r = await fetch(`${API_URL}/api/v1/threads/${encodeURIComponent(id)}/messages`, { headers: authHeaders() });
       const data = await r.json();
-      const msgs = Array.isArray(data) ? data : [];
-      setMessages(msgs);
-      // restore citations from last assistant message if present
-      const last = [...msgs].reverse().find((m: any) => m.citations?.length);
-      if (last) setCurrentCitations(last.citations);
+      setMessages(Array.isArray(data) ? data : []);
     } catch {}
   }
 
@@ -121,38 +178,36 @@ export default function Chat() {
     if (!input.trim() || streaming) return;
     const q = input.trim();
     setInput("");
-    setMessages((m) => [...m, { role: "user", content: q }]);
+    setMessages((m) => [...m, { role: "user", content: q }, { role: "assistant", content: "" }]);
     setStreaming(true);
     let acc = "";
     let metaCites: Citation[] = [];
-    // placeholder for assistant
-    setMessages((m) => [...m, { role: "assistant", content: "" }]);
 
     const ctrl = new AbortController();
     abortRef.current = ctrl;
-    // Anything past a few seconds without a first byte means the host is almost
-    // certainly cold-starting, so explain that rather than showing a silent spinner.
     wakeTimer.current = setTimeout(() => setWaking(true), 3000);
     const stopWaking = () => {
       if (wakeTimer.current) clearTimeout(wakeTimer.current);
       wakeTimer.current = null;
       setWaking(false);
     };
+    const replaceLast = (patch: Partial<Message>) =>
+      setMessages((prev) => {
+        const copy = [...prev];
+        const prevLast = copy[copy.length - 1] ?? { role: "assistant" as const, content: "" };
+        copy[copy.length - 1] = { ...prevLast, ...patch, role: "assistant" };
+        return copy;
+      });
+
     try {
       await streamChat(q, threadId, {
-        onMeta: (cits) => { stopWaking(); metaCites = cits as Citation[]; setCurrentCitations(cits as Citation[]); },
-        onToken: (tok) => {
-          stopWaking();
-          acc += tok;
-          setMessages((prev) => { const copy = [...prev]; copy[copy.length - 1] = { role: "assistant", content: acc, citations: metaCites }; return copy; });
-        },
-        onDone: (full) => {
-          setMessages((prev) => { const copy = [...prev]; copy[copy.length - 1] = { role: "assistant", content: full || acc, citations: metaCites }; return copy; });
-        },
-        onError: (e) => { setMessages((prev) => [...prev.slice(0, -1), { role: "assistant", content: `Error: ${e}` }]); },
+        onMeta: (cits) => { stopWaking(); metaCites = cits as Citation[]; },
+        onToken: (tok) => { stopWaking(); acc += tok; replaceLast({ content: acc, citations: metaCites }); },
+        onDone: (full, check) => replaceLast({ content: full || acc, citations: metaCites, check }),
+        onError: (e) => replaceLast({ content: `Couldn't complete that: ${e}`, citations: [] }),
       }, ctrl.signal);
     } catch (e: any) {
-      setMessages((prev) => [...prev.slice(0, -1), { role: "assistant", content: `Error: ${e?.message || e}` }]);
+      replaceLast({ content: `Couldn't complete that: ${e?.message || e}`, citations: [] });
     } finally {
       // Always clear, on every path. Previously this lived only inside onDone and
       // onError, so any throw left the composer disabled permanently.
@@ -162,140 +217,254 @@ export default function Chat() {
     }
   }
 
+  const mode = health?.retrieval_mode as string | undefined;
+  const degraded = health && health.status !== "ok";
+
   return (
     <div className="flex h-screen overflow-hidden">
-      {/* Left — threads */}
-      <div className="w-[260px] shrink-0 border-r border-slate-200 bg-white flex flex-col">
-        <div className="h-12 px-3 border-b border-slate-200 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="h-7 w-7 rounded-md bg-slate-900 flex items-center justify-center text-white text-xs font-semibold">A</div>
-            <div>
-              <div className="text-sm font-semibold leading-none tracking-tight">Aura</div>
-              <div className="text-xs font-mono text-slate-500 leading-none">Clinical</div>
-            </div>
+      {/* Scrim for the mobile slide-over */}
+      {railOpen ? (
+        <button
+          aria-label="Close menu"
+          onClick={() => setRailOpen(false)}
+          className="fixed inset-0 z-30 bg-black/20 md:hidden"
+        />
+      ) : null}
+
+      {/* Rail — identity, threads, and what the system currently knows.
+          A slide-over below md so ingest, history and retrieval state stay
+          reachable on a phone rather than being hidden with the sidebar. */}
+      <aside
+        className={`fixed inset-y-0 left-0 z-40 flex w-[236px] shrink-0 flex-col border-r bg-white transition-transform md:static md:translate-x-0 ${
+          railOpen ? "translate-x-0" : "-translate-x-full"
+        }`}
+        style={{ borderColor: "var(--rule)" }}
+      >
+        <div className="border-b px-4 py-4" style={{ borderColor: "var(--rule)" }}>
+          <div className="text-[15px] font-semibold tracking-tight">Aura</div>
+          <div className="mt-0.5 text-[11px]" style={{ color: "var(--ink-soft)" }}>
+            Clinical reference
           </div>
-          <span className="text-xs font-mono px-1.5 py-1 rounded border border-slate-200 bg-slate-50">v0.1</span>
         </div>
 
-        <div className="p-3">
-          <button onClick={newThread} className="w-full rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800">New consultation</button>
-          <div className="mt-3 flex items-center justify-between">
-            <span className="text-xs font-medium text-slate-700">Threads</span>
-            <span className="text-xs font-mono text-slate-500">{threads.length + 1}</span>
-          </div>
+        <div className="px-3 pt-3">
+          <button
+            onClick={newThread}
+            className="w-full rounded-sm border px-3 py-2 text-[12px] font-medium transition-colors hover:bg-[var(--paper)]"
+            style={{ borderColor: "var(--rule)" }}
+          >
+            New consultation
+          </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-2 pb-3 space-y-1">
-          <button onClick={() => openThread(sessionThread)} className={`w-full text-left rounded-md px-2.5 py-2 border ${threadId === sessionThread ? "bg-slate-900 text-white border-slate-900" : "bg-white border-slate-200 hover:bg-slate-50"}`}>
-            <div className="text-sm font-medium leading-none truncate">Default session</div>
-            <div className="text-xs font-mono leading-none mt-1 opacity-70">resume · streaming</div>
+        <div className="mt-4 px-4">
+          <div className="label">Consultations</div>
+        </div>
+        <nav className="mt-2 flex-1 overflow-y-auto px-2 pb-3">
+          <button
+            onClick={() => openThread(sessionThread)}
+            aria-current={threadId === sessionThread}
+            className="block w-full truncate rounded-sm px-2 py-1.5 text-left text-[12px]"
+            style={{
+              background: threadId === sessionThread ? "var(--paper)" : "transparent",
+              color: threadId === sessionThread ? "var(--ink)" : "var(--ink-soft)",
+            }}
+          >
+            This session
           </button>
           {threads.map((t) => (
-            <button key={t.id} onClick={() => openThread(t.id)} className={`w-full text-left rounded-md px-2.5 py-2 border ${threadId === t.id ? "bg-slate-900 text-white border-slate-900" : "bg-white border-slate-200 hover:bg-slate-50"}`}>
-              <div className="text-sm font-medium leading-none truncate">{t.title}</div>
-              <div className="text-xs font-mono leading-none mt-1 opacity-60 truncate">{t.id}</div>
+            <button
+              key={t.id}
+              onClick={() => openThread(t.id)}
+              aria-current={threadId === t.id}
+              className="block w-full truncate rounded-sm px-2 py-1.5 text-left text-[12px]"
+              style={{
+                background: threadId === t.id ? "var(--paper)" : "transparent",
+                color: threadId === t.id ? "var(--ink)" : "var(--ink-soft)",
+              }}
+            >
+              {t.title}
             </button>
           ))}
-        </div>
+        </nav>
 
-        <div className="p-3 border-t border-slate-200 space-y-3">
-          <AdminUpload compact />
-          <div className="text-xs leading-4 text-slate-600">TTFT &lt;400ms · grounded citations · SSE streaming</div>
-        </div>
-      </div>
-
-      {/* Center — chat */}
-      <div className="flex-1 min-w-0 flex flex-col bg-slate-50">
-        <div className="h-12 shrink-0 border-b border-slate-200 bg-white px-4 flex items-center justify-between">
-          <div className="min-w-0">
-            <div className="text-sm font-semibold tracking-tight truncate">Consultation · {threadId}</div>
-            <div className="text-xs font-mono text-slate-500">Streaming RAG · every claim cited · refuses if not verified</div>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="hidden sm:inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full border border-teal-200 bg-teal-50 text-teal-800">
-              <span className="h-1.5 w-1.5 rounded-full bg-teal-600 animate-pulse" /> Live
-            </span>
-            <span className="text-xs font-mono px-2 py-1 rounded-md border border-slate-200 bg-white">{streaming ? "streaming…" : "ready"}</span>
-          </div>
-        </div>
-
-        <div ref={scroller} className="flex-1 overflow-y-auto">
-          <div className="max-w-[780px] mx-auto px-6 py-6 space-y-5">
-            {messages.length === 0 && (
-              <div className="rounded-lg border border-slate-200 bg-white p-5">
-                <div className="text-sm font-semibold">Start a clinical query</div>
-                <div className="mt-1 text-sm leading-6 text-slate-600">Ask like a practitioner — e.g. “First-line therapy for hypertension with CKD?” The assistant streams word-by-word with inline citations. Click a number to see the exact source chunk.</div>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {[
-                    "First-line therapy for hypertension with CKD?",
-                    "Contraindications for lisinopril?",
-                    "Enoxaparin dosing for VTE prophylaxis?",
-                  ].map((ex) => (
-                    <button key={ex} onClick={() => setInput(ex)} className="text-xs font-medium px-2.5 py-1.5 rounded-md border border-slate-200 bg-slate-50 hover:bg-white">
-                      {ex}
-                    </button>
-                  ))}
-                </div>
-              </div>
+        {/* Honest system state. The app answers from embeddings or from keyword
+            matching depending on what is configured; saying which is the point. */}
+        <div className="border-t px-4 py-3" style={{ borderColor: "var(--rule)" }}>
+          <div className="label">Retrieval</div>
+          <div className="mt-1.5 text-[11px] tabular-nums" style={{ color: "var(--ink-soft)" }}>
+            {mode ? (
+              <>
+                <span style={{ color: mode === "pgvector" ? "var(--source)" : "var(--flag)" }}>
+                  {mode === "pgvector" ? "semantic" : "keyword"}
+                </span>
+                {" · cutoff "}
+                {health?.threshold}
+              </>
+            ) : (
+              "checking…"
             )}
+          </div>
+          {degraded ? (
+            <div className="mt-1.5 text-[11px]" style={{ color: "var(--flag)" }}>
+              Storage degraded — nothing is being saved.
+            </div>
+          ) : null}
+        </div>
 
-            {messages.map((m, i) => (
-              <div key={i} className="space-y-1.5">
-                <div className="text-xs font-medium tracking-wide text-slate-500">{m.role === "user" ? "You" : "Aura · verified"}</div>
-                <div className={`${m.role === "user" ? "bg-slate-900 text-white border-slate-900" : "bg-white text-slate-900 border-slate-200"} rounded-lg border px-4 py-3 text-sm leading-6`}>
-                  {m.role === "assistant" && m.citations?.length ? (
-                    <InlineCitations text={m.content} citations={m.citations} onCite={setActiveCite} />
-                  ) : (
-                    m.content || (streaming && i === messages.length - 1 ? <span className="font-mono text-slate-400">▎</span> : null)
-                  )}
-                </div>
-                {m.role === "assistant" && m.citations?.length ? (
-                  <div className="flex flex-wrap gap-1.5">
-                    {m.citations.map((c) => (
-                      <button key={c.id} onClick={() => setActiveCite(c)} className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2 py-1 text-xs hover:bg-slate-50">
-                        <span className="inline-flex h-4 min-w-4 items-center justify-center rounded bg-slate-900 text-white text-xs px-1">{c.idx}</span>
-                        <span className="font-medium truncate max-w-[160px]">{c.doc_title}</span>
-                        <span className="font-mono text-slate-500">p.{c.page}</span>
+        <div className="border-t px-3 py-3" style={{ borderColor: "var(--rule)" }}>
+          <AdminUpload compact />
+        </div>
+      </aside>
+
+      {/* Consultation */}
+      <main className="flex min-w-0 flex-1 flex-col">
+        <div
+          className="flex items-center gap-3 border-b bg-white px-4 py-2.5 md:hidden"
+          style={{ borderColor: "var(--rule)" }}
+        >
+          <button
+            onClick={() => setRailOpen(true)}
+            aria-label="Open menu"
+            aria-expanded={railOpen}
+            className="rounded-sm border px-2.5 py-1.5 text-[11px]"
+            style={{ borderColor: "var(--rule)" }}
+          >
+            Menu
+          </button>
+          <span className="text-[13px] font-semibold tracking-tight">Aura</span>
+          {mode ? (
+            <span
+              className="ml-auto text-[11px]"
+              style={{ color: mode === "pgvector" ? "var(--source)" : "var(--flag)" }}
+            >
+              {mode === "pgvector" ? "semantic" : "keyword"}
+            </span>
+          ) : null}
+        </div>
+        <div ref={scroller} className="flex-1 overflow-y-auto">
+          <div className="mx-auto max-w-[68ch] px-6 py-10">
+            {messages.length === 0 && (
+              <div>
+                <h1 className="prose-clinical text-[38px] font-medium leading-[1.15] tracking-[-0.015em]">
+                  Ask a clinical question.
+                  <br />
+                  <span style={{ color: "var(--source)" }}>Read the source it came from.</span>
+                </h1>
+                <p className="prose-clinical mt-5 text-[16px]" style={{ color: "var(--ink-soft)" }}>
+                  Every answer is assembled from indexed guidelines and protocols. Each
+                  reference opens the exact passage and page it was drawn from, quoted
+                  without alteration. If nothing in the corpus covers your question, Aura
+                  says so rather than guessing.
+                </p>
+                <div className="mt-7">
+                  <div className="label">Try</div>
+                  <div className="mt-2.5 flex flex-col items-start gap-1.5">
+                    {SUGGESTIONS.map((ex) => (
+                      <button
+                        key={ex}
+                        onClick={() => setInput(ex)}
+                        className="text-left text-[12px] underline decoration-dotted underline-offset-4 hover:decoration-solid"
+                        style={{ color: "var(--source)" }}
+                      >
+                        {ex}
                       </button>
                     ))}
                   </div>
-                ) : null}
+                </div>
               </div>
-            ))}
+            )}
 
-            {streaming && !waking && <div className="text-xs font-mono text-slate-500">Receiving tokens…</div>}
+            <div className="space-y-9">
+              {messages.map((m, i) =>
+                m.role === "user" ? (
+                  <div key={i}>
+                    <div className="label">Question</div>
+                    <p className="prose-clinical mt-1.5 text-[19px] font-medium leading-snug">
+                      {m.content}
+                    </p>
+                  </div>
+                ) : (
+                  <div key={i}>
+                    <div className="label">Answer</div>
+                    <div className="prose-clinical mt-1.5">
+                      {m.content ? (
+                        <Prose
+                          text={m.content}
+                          citations={m.citations ?? []}
+                          linked={linked}
+                          onLink={setLinked}
+                        />
+                      ) : streaming && i === messages.length - 1 && !waking ? (
+                        <span style={{ color: "var(--ink-soft)" }}>▍</span>
+                      ) : null}
+                    </div>
+
+                    <Provenance citations={m.citations ?? []} check={m.check} />
+
+                    {m.citations?.length ? (
+                      <div className="mt-4">
+                        <div className="label">Evidence</div>
+                        <div className="mt-2 space-y-2">
+                          {m.citations.map((c) => (
+                            <div key={c.id} id={`evidence-${c.idx}`}>
+                              <CitationPanel
+                                citation={c}
+                                linked={linked === c.idx}
+                                onHover={setLinked}
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                )
+              )}
+            </div>
+
             {waking && (
-              <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-900">
-                <span className="font-medium">Waking the server…</span> This deployment runs on a free
-                tier that sleeps when idle, so the first request can take around 30 seconds. Later
-                questions respond immediately.
+              <div
+                className="mt-6 rounded-sm border px-4 py-3 text-[12px] leading-relaxed"
+                style={{ borderColor: "var(--flag)", color: "var(--flag)" }}
+              >
+                <span className="font-medium">Waking the server.</span> This deployment runs
+                on a free tier that sleeps when idle, so the first request can take around
+                30 seconds. Later questions respond immediately.
               </div>
             )}
           </div>
         </div>
 
-        <div className="border-t border-slate-200 bg-white p-3">
-          <div className="max-w-[780px] mx-auto flex gap-2">
-            <input
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && (e.preventDefault(), send())}
-              placeholder="Ask a clinical question… (Enter to send)"
-              className="flex-1 rounded-md border border-slate-300 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-900/10"
-            />
-            <button onClick={send} disabled={streaming || !input.trim()} className="rounded-md bg-teal-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-teal-700 disabled:opacity-40 disabled:cursor-not-allowed">
-              Send
-            </button>
-          </div>
-          <div className="max-w-[780px] mx-auto mt-2 flex justify-between text-xs font-mono text-slate-500">
-            <span>Grounded in verified guidelines · citations required</span>
-            <span>Enter ↵ · citations clickable</span>
+        {/* Composer */}
+        <div className="border-t bg-white" style={{ borderColor: "var(--rule)" }}>
+          <div className="mx-auto max-w-[68ch] px-6 py-4">
+            <div className="flex items-end gap-2">
+              <input
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && (e.preventDefault(), send())}
+                placeholder="Ask a clinical question…"
+                aria-label="Ask a clinical question"
+                className="flex-1 border-b bg-transparent px-1 py-2 text-[13px] outline-none placeholder:text-[var(--ink-soft)] focus:border-[var(--source)]"
+                style={{ borderColor: "var(--rule)" }}
+              />
+              <button
+                onClick={send}
+                disabled={streaming || !input.trim()}
+                className="shrink-0 rounded-sm px-4 py-2 text-[12px] font-medium text-white transition-opacity disabled:opacity-30"
+                style={{ background: "var(--ink)" }}
+              >
+                Send
+              </button>
+            </div>
+            <p className="mt-2 text-[11px]" style={{ color: "var(--ink-soft)" }}>
+              Reference tool for clinicians. Not a diagnosis, and not a substitute for
+              clinical judgement.
+            </p>
           </div>
         </div>
-      </div>
-
-      {/* Right — evidence drawer */}
-      {activeCite ? <CitationPanel citation={activeCite} onClose={() => setActiveCite(null)} /> : null}
+      </main>
     </div>
   );
 }

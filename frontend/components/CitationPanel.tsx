@@ -1,41 +1,77 @@
 "use client";
 import { Citation } from "@/lib/types";
 
-export default function CitationPanel({ citation, onClose }: { citation: Citation | null; onClose: () => void }) {
+/**
+ * One retrieved source, shown verbatim.
+ *
+ * This used to be a drawer you had to click a citation to open, which buried the
+ * one thing that distinguishes this product from any other chat interface. The
+ * evidence is now permanently visible beneath the answer it supports, and the
+ * marker in the prose and this card highlight together.
+ */
+export default function CitationPanel({
+  citation,
+  linked,
+  onHover,
+  onClose,
+}: {
+  citation: Citation | null;
+  linked?: boolean;
+  onHover?: (idx: number | null) => void;
+  onClose?: () => void;
+}) {
   if (!citation) return null;
   return (
-    <div data-testid="citation-panel" className="w-[380px] shrink-0 bg-white border-l border-slate-200 flex flex-col">
-      <div className="h-12 px-4 border-b border-slate-200 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-md bg-teal-600 px-1.5 text-xs font-medium text-white">[{citation.idx}]</span>
-          <span className="text-sm font-semibold tracking-tight">Evidence</span>
-        </div>
-        <button onClick={onClose} className="text-xs font-medium px-2.5 py-1.5 rounded-md border border-slate-200 hover:bg-slate-50">Close</button>
+    <div
+      data-testid="citation-panel"
+      data-linked={linked ? "true" : "false"}
+      onMouseEnter={() => onHover?.(citation.idx)}
+      onMouseLeave={() => onHover?.(null)}
+      className="evidence rounded-sm border bg-white px-4 py-3 transition-colors"
+      style={{ borderColor: "var(--rule)" }}
+    >
+      <div className="flex items-baseline gap-2.5">
+        <span
+          className="shrink-0 text-[11px] font-medium tabular-nums"
+          style={{ color: "var(--source)" }}
+        >
+          [{citation.idx}]
+        </span>
+        <span className="min-w-0 flex-1 truncate text-[13px] font-medium">
+          {citation.doc_title}
+        </span>
+        <span className="shrink-0 text-[11px]" style={{ color: "var(--ink-soft)" }}>
+          p.{citation.page}
+        </span>
+        {onClose ? (
+          <button
+            onClick={onClose}
+            className="shrink-0 text-[11px] underline underline-offset-2"
+            style={{ color: "var(--ink-soft)" }}
+          >
+            Close
+          </button>
+        ) : null}
       </div>
-      <div className="p-5 space-y-4 overflow-y-auto">
-        <div>
-          <div className="text-sm font-medium leading-tight">{citation.doc_title}</div>
-          <div className="mt-1 flex items-center gap-2 text-xs">
-            <span className="font-mono text-slate-500">p.{citation.page}</span>
-            <span className="h-1 w-1 rounded-full bg-slate-300" />
-            <span className="font-mono text-slate-500">score {citation.score}</span>
-            <span className="h-1 w-1 rounded-full bg-slate-300" />
-            <span className="font-mono text-slate-500 truncate">{citation.doc_id}</span>
-          </div>
-        </div>
-        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3.5 text-[13px] leading-6 text-slate-800">
-          {citation.chunk_text}
-        </div>
-        <div className="rounded-md bg-amber-50 border border-amber-200 px-3 py-2 text-xs leading-5 text-amber-900">
-          Verified chunk — rendered verbatim. No LLM rewrite.
-        </div>
-        <div className="pt-2 border-t border-slate-100">
-          <div className="text-xs font-medium text-slate-700">Provenance</div>
-          <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
-            <div className="rounded-md border border-slate-200 p-2"><div className="font-mono text-slate-500">Chunk ID</div><div className="font-medium truncate">{citation.id}</div></div>
-            <div className="rounded-md border border-slate-200 p-2"><div className="font-mono text-slate-500">Document</div><div className="font-medium truncate">{citation.doc_id}</div></div>
-          </div>
-        </div>
+
+      {/* Verbatim, in the serif, because this is the source text itself -- the one
+          thing on the page that is quoted rather than generated. */}
+      <blockquote
+        className="prose-clinical mt-2.5 border-l-2 pl-3 text-[15px]"
+        style={{ borderColor: "var(--rule)", color: "var(--ink)" }}
+      >
+        {citation.chunk_text}
+      </blockquote>
+
+      <div
+        className="mt-2.5 flex items-center gap-3 text-[11px] tabular-nums"
+        style={{ color: "var(--ink-soft)" }}
+      >
+        <span>match {citation.score}</span>
+        <span aria-hidden>·</span>
+        <span className="truncate">{citation.doc_id}</span>
+        <span aria-hidden>·</span>
+        <span className="truncate">{citation.id}</span>
       </div>
     </div>
   );

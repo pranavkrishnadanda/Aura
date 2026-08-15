@@ -18,7 +18,9 @@ export function authHeaders(): Record<string, string> {
 export type StreamCallbacks = {
   onMeta: (citations: any[], isRefusal: boolean) => void;
   onToken: (token: string) => void;
-  onDone: (fullText: string) => void;
+  /** `check` reports whether the answer's citation markers resolved to real
+   *  sources. Undefined when the backend did not run the check (no citations). */
+  onDone: (fullText: string, check?: any) => void;
   onError: (err: string) => void;
 };
 
@@ -91,7 +93,7 @@ export async function streamChat(
         else if (event === "token") {
           full += json.token ?? "";
           cbs.onToken(json.token ?? "");
-        } else if (event === "done") finish(() => cbs.onDone(json.full_text ?? full));
+        } else if (event === "done") finish(() => cbs.onDone(json.full_text ?? full, json.citation_check));
         // The backend emits this when generation throws mid-stream. It was
         // previously ignored entirely, so the UI just stopped receiving tokens
         // and sat on "streaming…" with no explanation.

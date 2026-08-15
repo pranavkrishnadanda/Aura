@@ -74,7 +74,7 @@ test.describe("resilience", () => {
     await page.goto("/");
 
     // The shell still renders rather than throwing on a failed thread fetch.
-    await expect(page.getByText("Aura")).toBeVisible();
+    await expect(page.getByRole("complementary").getByText("Aura")).toBeVisible();
     await expect(page.getByPlaceholder(/Ask a clinical question/i)).toBeVisible();
   });
 
@@ -84,7 +84,7 @@ test.describe("resilience", () => {
       route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ detail: "boom" }) })
     );
     await page.goto("/");
-    await expect(page.getByText("Aura")).toBeVisible();
+    await expect(page.getByRole("complementary").getByText("Aura")).toBeVisible();
     await expect(page.getByRole("button", { name: "New consultation" })).toBeVisible();
   });
 
@@ -94,7 +94,7 @@ test.describe("resilience", () => {
     page.on("pageerror", (e) => errors.push(e.message));
 
     await page.goto("/");
-    await expect(page.getByText("Start a clinical query")).toBeVisible();
+    await expect(page.getByRole("heading", { name: /Ask a clinical question/ })).toBeVisible();
 
     expect(errors, `console errors on load:\n${errors.join("\n")}`).toEqual([]);
   });

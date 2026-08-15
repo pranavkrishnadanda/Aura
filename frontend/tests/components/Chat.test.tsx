@@ -115,7 +115,7 @@ describe("Chat - empty state", () => {
     // state update isn't reported outside of act().
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
 
-    expect(screen.getByText("Start a clinical query")).toBeInTheDocument();
+    expect(screen.getByText(/Ask a clinical question\./)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "First-line therapy for hypertension with CKD?" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Contraindications for lisinopril?" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Enoxaparin dosing for VTE prophylaxis?" })).toBeInTheDocument();
@@ -149,7 +149,7 @@ describe("Chat - sending a message", () => {
     await user.click(screen.getByRole("button", { name: "Send" }));
 
     expect(await screen.findByText("First-line therapy?")).toBeInTheDocument();
-    expect(screen.getByText("streaming…")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
 
     await act(async () => ctrl.push(frame("meta", { citations: [], is_refusal: false })));
     await act(async () => ctrl.push(frame("token", { token: "Hel" })));
@@ -163,7 +163,7 @@ describe("Chat - sending a message", () => {
       ctrl.close();
     });
 
-    expect(await screen.findByText("ready")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Send" })).toBeDisabled());
   });
 
   it("disables Send while input is empty or whitespace-only", async () => {
@@ -253,8 +253,7 @@ describe("Chat - sending a message", () => {
     await user.type(screen.getByPlaceholderText(PLACEHOLDER), "question");
     await user.click(screen.getByRole("button", { name: "Send" }));
 
-    expect(await screen.findByText(/Error: model timeout/)).toBeInTheDocument();
-    expect(screen.getByText("ready")).toBeInTheDocument();
+    expect(await screen.findByText(/model timeout/)).toBeInTheDocument();
 
     await user.type(screen.getByPlaceholderText(PLACEHOLDER), "another question");
     expect(screen.getByRole("button", { name: "Send" })).not.toBeDisabled();
@@ -301,7 +300,7 @@ describe("Chat - citations", () => {
     idx: 1,
   };
 
-  it("renders citations as clickable [n] buttons that open the CitationPanel", async () => {
+  it("shows the evidence with the answer and links each marker to its source", async () => {
     vi.stubGlobal(
       "fetch",
       makeFetch({
@@ -320,15 +319,21 @@ describe("Chat - citations", () => {
     await user.click(screen.getByRole("button", { name: "Send" }));
 
     const citeBtn = await screen.findByRole("button", { name: "Open citation 1" });
-    expect(screen.queryByText("Evidence text.")).not.toBeInTheDocument();
 
-    await user.click(citeBtn);
-
-    // The panel renders the doc_title again alongside the source chunk text,
-    // so the doc_title now appears twice (chip + panel) -- assert the panel's
-    // own content, which is unique, opened.
+    // Provenance is the product, so the source is visible with the answer rather
+    // than hidden behind a click. It used to live in a drawer you had to open,
+    // which buried the one thing distinguishing this from any other chat UI.
     expect(screen.getByText("Evidence")).toBeInTheDocument();
     expect(screen.getByText("Evidence text.")).toBeInTheDocument();
+
+    // Hovering the marker links it to its evidence card, so the claim and its
+    // source highlight as one object.
+    const card = screen.getByTestId("citation-panel");
+    expect(card).toHaveAttribute("data-linked", "false");
+    await user.hover(citeBtn);
+    expect(card).toHaveAttribute("data-linked", "true");
+    await user.unhover(citeBtn);
+    expect(card).toHaveAttribute("data-linked", "false");
   });
 });
 
@@ -339,9 +344,10 @@ describe("Chat - threads sidebar resilience", () => {
     vi.stubGlobal("fetch", makeFetch({ threads: { detail: "boom" } }));
     render(<Chat />);
 
-    expect(await screen.findByText("Threads")).toBeInTheDocument();
-    // Only the always-present "Default session" entry counts, so length is 1.
-    expect(screen.getByText("1")).toBeInTheDocument();
+    expect(await screen.findByText("Consultations")).toBeInTheDocument();
+    // The rail still renders: the session entry is present and nothing threw.
+    expect(screen.getByText("This session")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "New consultation" })).toBeInTheDocument();
   });
 });
 
@@ -374,7 +380,7 @@ describe("Chat - switching threads", () => {
     await user.click(screen.getByText("Other consult"));
 
     expect(capturedSignal!.aborted).toBe(true);
-    expect(await screen.findByText("ready")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Send" })).toBeDisabled());
   });
 });
 

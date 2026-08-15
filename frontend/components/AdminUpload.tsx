@@ -80,22 +80,30 @@ export default function AdminUpload({ compact }: { compact?: boolean }) {
   }
   if (compact) {
     return (
-      <div className="rounded-lg border border-slate-200 bg-white p-3">
-        <div className="text-xs font-semibold">Ingest</div>
-        <div className="text-xs text-slate-600 leading-4 mt-1">PDF up to {MAX_PDF_MB}MB. Auto-chunks to ~600 words.</div>
-        <label className="mt-2 flex items-center justify-center rounded-md border border-dashed border-slate-300 bg-slate-50 px-3 py-2 text-xs font-medium hover:bg-slate-100 cursor-pointer">
+      <div>
+        <div className="label">Corpus</div>
+        <label
+          className="mt-2 flex cursor-pointer items-center justify-center rounded-sm border border-dashed px-3 py-2 text-[11px] transition-colors hover:bg-[var(--paper)]"
+          style={{ borderColor: "var(--rule)" }}
+        >
           <input type="file" accept="application/pdf" onChange={onFile} className="hidden" />
-          {busy ? "Working…" : "Choose PDF"}
+          {busy ? "Working…" : `Add a PDF (max ${MAX_PDF_MB}MB)`}
         </label>
-        <div className="mt-2 text-xs font-mono text-slate-500 leading-4 break-words">{status}</div>
+        {status ? (
+          <div className="mt-2 break-words text-[11px] leading-4" style={{ color: "var(--ink-soft)" }}>
+            {status}
+          </div>
+        ) : null}
       </div>
     );
   }
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-4">
-      <div className="text-sm font-semibold">Admin — Ingest trial PDFs</div>
-      <input type="file" accept="application/pdf" onChange={onFile} className="mt-2 text-sm" />
-      <div className="mt-2 text-xs font-mono text-slate-500">{status || `Batch ingest — PDF up to ${MAX_PDF_MB}MB, processed in the background.`}</div>
+    <div className="rounded-sm border bg-white p-4" style={{ borderColor: "var(--rule)" }}>
+      <div className="label">Add to corpus</div>
+      <input type="file" accept="application/pdf" onChange={onFile} className="mt-2 text-[12px]" />
+      <div className="mt-2 text-[11px]" style={{ color: "var(--ink-soft)" }}>
+        {status || `PDF up to ${MAX_PDF_MB}MB. Chunked and indexed in the background.`}
+      </div>
     </div>
   );
 }

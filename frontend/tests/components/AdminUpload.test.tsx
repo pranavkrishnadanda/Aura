@@ -173,7 +173,7 @@ describe("AdminUpload", () => {
     vi.stubGlobal("fetch", fetchMock);
     render(<AdminUpload compact />);
 
-    expect(screen.getByText("Choose PDF")).toBeInTheDocument();
+    expect(screen.getByText(/Add a PDF/)).toBeInTheDocument();
 
     // setBusy(true) runs synchronously before the upload request is awaited, so
     // the busy label is present immediately -- no need to wait for it (and
@@ -190,7 +190,7 @@ describe("AdminUpload", () => {
       await vi.advanceTimersByTimeAsync(1000);
     });
 
-    expect(screen.getByText("Choose PDF")).toBeInTheDocument();
+    expect(screen.getByText(/Add a PDF/)).toBeInTheDocument();
     expect(screen.queryByText("Working…")).not.toBeInTheDocument();
   });
 });

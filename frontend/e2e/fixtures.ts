@@ -36,8 +36,24 @@ export function groundedStream(tokens: string[], citations = [SEED_CITATION]): s
   );
 }
 
-export async function stubApi(page: Page, opts: { chat?: string; threads?: unknown[] } = {}) {
+export async function stubApi(
+  page: Page,
+  opts: { chat?: string; threads?: unknown[]; health?: Record<string, unknown> } = {}
+) {
   if (LIVE) return;
+
+  // The rail reports the live retrieval mode, so /health is part of the backend
+  // surface the suite must stand in for. Leaving it unstubbed let a real request
+  // escape to a backend that is not running, which surfaces as a console error.
+  await page.route("**/health", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(
+        opts.health ?? { status: "ok", retrieval_mode: "pgvector", threshold: 0.85, storage_mode: "postgres" }
+      ),
+    })
+  );
 
   await page.route("**/api/v1/threads", async (route) => {
     if (route.request().method() === "POST") {

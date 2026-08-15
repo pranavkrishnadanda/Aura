@@ -1,11 +1,11 @@
 import { test, expect, groundedStream, SEED_CITATION } from "./fixtures";
 
 test.describe("clinical chat", () => {
-  test("streams a grounded answer and opens the evidence panel", async ({ page }) => {
+  test("streams a grounded answer with its evidence visible", async ({ page }) => {
     await page.goto("/");
 
     // Empty state offers the canned clinical prompts.
-    await expect(page.getByText("Start a clinical query")).toBeVisible();
+    await expect(page.getByRole("heading", { name: /Ask a clinical question/ })).toBeVisible();
     await page.getByRole("button", { name: "First-line therapy for hypertension with CKD?" }).click();
 
     const input = page.getByPlaceholder(/Ask a clinical question/i);
@@ -14,23 +14,24 @@ test.describe("clinical chat", () => {
     await page.getByRole("button", { name: "Send" }).click();
 
     // The answer streams in and is attributed.
-    await expect(page.getByText(/ACE inhibitors/)).toBeVisible();
-    await expect(page.getByText("You")).toBeVisible();
+    await expect(page.getByText(/ACE inhibitors/).first()).toBeVisible();
+    await expect(page.getByText("Question")).toBeVisible();
 
-    // The inline [1] marker is clickable and opens the verbatim source.
-    await page.getByRole("button", { name: "Open citation 1" }).click();
-
-    // Scope to the panel: the document title also appears on the citation chip
-    // under the message, so an unscoped lookup matches two elements.
-    const panel = page.getByTestId("citation-panel");
+    // The source is shown with the answer, not hidden behind a click.
+    const panel = page.getByTestId("citation-panel").first();
     await expect(panel).toBeVisible();
     await expect(panel.getByText(SEED_CITATION.doc_title)).toBeVisible();
     await expect(panel.getByText(`p.${SEED_CITATION.page}`)).toBeVisible();
-    await expect(panel.getByText("Verified chunk — rendered verbatim. No LLM rewrite.")).toBeVisible();
     await expect(panel.getByText(SEED_CITATION.chunk_text)).toBeVisible();
 
-    await panel.getByRole("button", { name: "Close" }).click();
-    await expect(page.getByTestId("citation-panel")).toHaveCount(0);
+    // Hovering the marker links the claim to its source.
+    await expect(panel).toHaveAttribute("data-linked", "false");
+    await page.getByRole("button", { name: "Open citation 1" }).hover();
+    await expect(panel).toHaveAttribute("data-linked", "true");
+
+    // Every marker the model wrote resolves to a source; none render as flagged.
+    await expect(page.getByText(/\[\d+\?\]/)).toHaveCount(0);
+    await expect(page.getByText("all references resolve")).toBeVisible();
   });
 
   test("Enter sends, Shift+Enter does not", async ({ page }) => {
@@ -42,7 +43,7 @@ test.describe("clinical chat", () => {
     await expect(page.getByText(/ACE inhibitors/)).toHaveCount(0);
 
     await input.press("Enter");
-    await expect(page.getByText(/ACE inhibitors/)).toBeVisible();
+    await expect(page.getByText(/ACE inhibitors/).first()).toBeVisible();
   });
 
   test("composer is re-enabled after a mid-stream error", async ({ page }) => {
@@ -55,7 +56,7 @@ test.describe("clinical chat", () => {
     await input.fill("does this recover?");
     await page.getByRole("button", { name: "Send" }).click();
 
-    await expect(page.getByText(/Error:/)).toBeVisible();
+    await expect(page.getByText(/Couldn't complete that/)).toBeVisible();
 
     // Send is also disabled on empty input, so type again before asserting -- it
     // is the `streaming` flag being stuck that this guards, and only a non-empty

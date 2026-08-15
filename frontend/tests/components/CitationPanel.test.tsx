@@ -20,7 +20,7 @@ describe("CitationPanel", () => {
 
     expect(screen.getByText("ACC/AHA Hypertension Guideline")).toBeInTheDocument();
     expect(screen.getByText("p.12")).toBeInTheDocument();
-    expect(screen.getByText("score 0.873")).toBeInTheDocument();
+    expect(screen.getByText("match 0.873")).toBeInTheDocument();
     expect(screen.getAllByText("doc_7").length).toBeGreaterThan(0);
     expect(
       screen.getByText("First-line therapy for hypertension with CKD is an ACE inhibitor or ARB.")
