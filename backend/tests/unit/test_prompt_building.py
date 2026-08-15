@@ -1,3 +1,4 @@
+import re
 """Unit tests for app.rag.build_user_prompt, SYSTEM_PROMPT, and _aiter_blocking.
 
 build_user_prompt wraps retrieved chunk text in an explicit <context> boundary
@@ -107,3 +108,89 @@ async def test_aiter_blocking_propagates_exceptions():
         async for item in _aiter_blocking(gen()):
             collected.append(item)
     assert collected == [1, 2]
+
+
+# ---------------------------------------------------------------------------
+# Citation numbering and validation
+# ---------------------------------------------------------------------------
+
+@pytest.mark.unit
+def test_build_context_numbers_contiguously_after_filtering():
+    """Markers must be contiguous and match the UI's citation indices.
+
+    Regression: numbering ran over the unfiltered retrieved list while skipping
+    below-threshold chunks, producing [1], [3]. The API numbered its citation
+    payload contiguously ([1], [2]), so the model cited a marker the UI could not
+    resolve and it rendered as dead, un-clickable text.
+    """
+    from app.rag import build_context
+
+    retrieved = [
+        ({"id": "a", "doc_id": "d", "doc_title": "A", "page": 1, "text": "alpha"}, 0.9),
+        ({"id": "b", "doc_id": "d", "doc_title": "B", "page": 2, "text": "beta"}, 0.01),
+        ({"id": "c", "doc_id": "d", "doc_title": "C", "page": 3, "text": "gamma"}, 0.8),
+    ]
+    ctx, kept = build_context(retrieved, 0.1)
+
+    assert [c["id"] for c in kept] == ["a", "c"]
+    assert "[1] alpha" in ctx
+    assert "[2] gamma" in ctx
+    assert "[3]" not in ctx
+    assert "beta" not in ctx
+    markers = sorted({int(m) for m in re.findall(r"\[(\d+)\]", ctx)})
+    assert markers == list(range(1, len(kept) + 1))
+
+
+@pytest.mark.unit
+def test_build_context_omits_retrieval_scores():
+    """Scores are noise to the model and can be echoed into the answer."""
+    from app.rag import build_context
+
+    ctx, _ = build_context(
+        [({"id": "a", "doc_id": "d", "doc_title": "A", "page": 1, "text": "alpha"}, 0.87)], 0.1
+    )
+    assert "score" not in ctx.lower()
+    assert "0.87" not in ctx
+    assert "Source: A, p.1" in ctx
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "answer,n,ok,invalid",
+    [
+        ("First line is X [1]. Monitor Y [2].", 2, True, []),
+        ("First line is X [1]. Also Z [3].", 2, False, [3]),
+        ("First line is X.", 2, False, []),
+        ("Repeated [1] and [1] again.", 2, True, []),
+        ("Marker zero [0].", 2, False, [0]),
+        ("", 2, False, []),
+    ],
+)
+def test_validate_citations(answer, n, ok, invalid):
+    """A marker past the end of the citation list is a fabricated reference.
+
+    That is worse than an uncited sentence, because it looks verifiable: the
+    reader sees a bracket and assumes a source exists behind it.
+    """
+    from app.rag import validate_citations
+
+    got_ok, got_invalid = validate_citations(answer, n)
+    assert got_ok is ok
+    assert got_invalid == invalid
+
+
+@pytest.mark.unit
+def test_out_of_scope_message_is_deterministic_and_uncited():
+    """The refusal is generated locally, never routed through the model.
+
+    It previously composed this text and sent it to the LLM as a user turn, asking
+    it to reply -- so the model was answering a refusal. It must carry no citation
+    marker, since there is nothing to cite.
+    """
+    from app.rag import out_of_scope_message
+
+    a = out_of_scope_message("what about hair loss")
+    b = out_of_scope_message("what about hair loss")
+    assert a == b
+    assert not re.search(r"\[\d+\]", a)
+    assert "hair loss" in a

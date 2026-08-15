@@ -5,6 +5,7 @@ The configured GEMINI_API_KEY in this environment is real but out of credits, so
 a live call would 429 and any test relying on network behavior would be flaky
 by construction.
 """
+import re
 import pytest
 
 import app.rag as rag
@@ -135,9 +136,13 @@ async def test_mock_provider_replays_only_retrieved_text_with_correct_markers():
 # ---------------------------------------------------------------------------
 
 async def test_citation_markers_correspond_to_the_originating_chunk(monkeypatch):
-    """The context handed to the provider must number chunks by their position
-    in the retrieved list, and must never include a chunk that fell below the
-    retrieval threshold -- even when that chunk sits between two that passed.
+    """Markers given to the model must be exactly the markers the UI can resolve.
+
+    Regression: the context was numbered over the UNFILTERED retrieved list while
+    skipping below-threshold chunks, so a gap appeared ([1], [3]) while the API
+    numbered its citation payload contiguously ([1], [2]). The model then cited
+    [3], which the UI had no entry for, and it rendered as dead un-clickable text
+    in a product whose promise is that every citation opens its source.
     """
     monkeypatch.setattr(settings, "LLM_PROVIDER", "groq")
     captured = {}
@@ -157,9 +162,19 @@ async def test_citation_markers_correspond_to_the_originating_chunk(monkeypatch)
 
     ctx = captured["context"]
     assert "[1] Chunk A content." in ctx
-    assert "[3] Chunk C content." in ctx
-    assert "Chunk B content." not in ctx
-    assert "[2]" not in ctx
+    assert "[2] Chunk C content." in ctx      # contiguous, not [3]
+    assert "Chunk B content." not in ctx      # below threshold, excluded entirely
+    assert "[3]" not in ctx
+
+    # And the numbering must match what the API hands the UI.
+    from app.rag import build_context, effective_threshold
+    _, kept = build_context(retrieved, effective_threshold())
+    ui_idx = [i for i, _ in enumerate(kept, 1)]
+    model_markers = sorted({int(m) for m in re.findall(r"\[(\d+)\]", ctx)})
+    assert model_markers == ui_idx, "model markers and UI citation indices diverged"
+
+    # Retrieval scores must not leak into the prompt.
+    assert "score=" not in ctx
 
 
 # ---------------------------------------------------------------------------
@@ -172,7 +187,7 @@ async def test_below_threshold_retrieval_yields_boundary_not_an_answer():
 
     full = "".join(await _collect(generate_answer("obscure question", retrieved)))
 
-    assert "outside my current clinical intelligence scope" in full
+    assert "outside what I can source" in full  # from rag.out_of_scope_message
     assert chunk["text"] not in full
     assert "[1]" not in full
 

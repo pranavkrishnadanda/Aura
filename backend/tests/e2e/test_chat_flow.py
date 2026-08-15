@@ -143,7 +143,7 @@ def test_clinical_seeded_query_returns_grounded_cited_answer():
 def test_off_topic_query_returns_boundary_text_with_no_citation():
     _, events = send_chat("What do you know about hair problems", "offtopic_thread")
     full_text = dict(events)["done"]["full_text"]
-    assert "outside my current clinical intelligence scope" in full_text
+    assert "outside what I can source" in full_text  # from rag.out_of_scope_message
     assert "[1]" not in full_text
 
 

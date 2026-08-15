@@ -6,7 +6,7 @@ from sse_starlette.sse import EventSourceResponse
 from app.config import settings
 from app.schemas import ChatRequest, ThreadCreate
 from app.db import create_thread, list_threads, get_thread, get_messages, add_message, get_chunk, list_chunks, try_pg_connection, db_error, storage_mode
-from app.rag import retrieve_async, generate_answer, effective_threshold, retrieval_mode
+from app.rag import retrieve_async, generate_answer, effective_threshold, retrieval_mode, build_context, validate_citations, CITATION_RE
 from app.auth import get_current_user
 from slowapi import Limiter
 from slowapi.util import get_remote_address
@@ -257,11 +257,20 @@ async def chat_stream(request: Request, body: ChatRequest, user=Depends(get_curr
             logger.error("retrieval unavailable: %s", e)
             raise HTTPException(503, "Knowledge base is temporarily unavailable. Please retry.")
         thresh = effective_threshold()
-        filtered = [(c,s) for c,s in retrieved if s >= thresh]
+        # Derive the UI's citation list from the same numbering the model is given,
+        # so a marker the model writes always resolves to a citation the UI holds.
+        # These were numbered independently and drifted apart whenever a chunk fell
+        # below threshold.
+        _, kept = build_context(retrieved, thresh)
+        scores = {id(c): s for c, s in retrieved}
+        filtered = [(c, scores[id(c)]) for c in kept]
         is_refusal = False  # product: boundary handled by AI
-        citations = []
-        for i,(chunk,score) in enumerate(filtered,1):
-            citations.append({"id": chunk["id"], "doc_id": chunk["doc_id"], "doc_title": chunk["doc_title"], "page": chunk["page"], "chunk_text": chunk["text"], "score": round(float(score),3), "idx": i})
+        citations = [
+            {"id": chunk["id"], "doc_id": chunk["doc_id"], "doc_title": chunk["doc_title"],
+             "page": chunk["page"], "chunk_text": chunk["text"],
+             "score": round(float(scores[id(chunk)]), 3), "idx": i}
+            for i, chunk in enumerate(kept, 1)
+        ]
 
     # Don't log PHI
     if settings.LOG_QUERIES:
@@ -291,10 +300,29 @@ async def chat_stream(request: Request, body: ChatRequest, user=Depends(get_curr
         except Exception as e:
             logger.error(f"stream error: {e}")
             yield {"event": "error", "data": json.dumps({"detail": str(e)})}
+        # Verify the grounding claim instead of trusting it.
+        #
+        # The product's promise is that every statement is traceable to a source,
+        # but that was only ever *asked* of the model in the system prompt with
+        # nothing checking the result. A marker pointing past the end of the
+        # citation list is a fabricated reference -- worse than an uncited
+        # sentence, because it looks verifiable. Report the outcome to the client
+        # rather than silently presenting an unverified answer as a grounded one.
+        answer = full_text.strip()
+        check = None
+        if answer and citations:
+            ok, invalid = validate_citations(answer, len(citations))
+            check = {"ok": ok, "invalid_markers": invalid, "cited": bool(CITATION_RE.search(answer))}
+            if invalid:
+                logger.error("model cited %s but only %d citations exist (thread=%s)",
+                             invalid, len(citations), body.thread_id)
+            elif not ok:
+                logger.warning("grounded answer contained no citation marker (thread=%s)", body.thread_id)
+
         # Save assistant message
         if full_text:
-            add_message(body.thread_id, "assistant", full_text.strip(), citations, user_id=user["user_id"])
-        yield {"event": "done", "data": json.dumps({"full_text": full_text.strip(), "citations": citations})}
+            add_message(body.thread_id, "assistant", answer, citations, user_id=user["user_id"])
+        yield {"event": "done", "data": json.dumps({"full_text": answer, "citations": citations, "citation_check": check})}
         # Final heartbeat
         yield {"event": "heartbeat", "data": json.dumps({"ts": time.time()})}
 

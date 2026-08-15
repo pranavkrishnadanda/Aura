@@ -30,6 +30,9 @@ class Settings(BaseSettings):
     LOG_QUERIES: bool = False
     # production hardening
     MAX_MESSAGE_LENGTH: int = 4000
+    # Bound generation. Unbounded output can run past the platform's request
+    # timeout mid-stream, leaving the reader with a truncated clinical answer.
+    MAX_OUTPUT_TOKENS: int = 1024
     RATE_LIMIT_ANON: str = "60/minute"
     RATE_LIMIT_AUTH: str = "300/minute"
     MAX_PDF_MB: int = 50

@@ -33,7 +33,7 @@ def test_greeting_not_refusal():
 
 def test_boundary_hair():
     txt,_ = stream_text("What do you know about hair problems","hair_prod")
-    assert "outside my current clinical intelligence scope" in txt
+    assert "outside what I can source" in txt  # from rag.out_of_scope_message
     assert "[1]" not in txt
 
 def test_clinical_citation():
@@ -50,7 +50,7 @@ def test_followup_anaphora():
     stream_text("First-line therapy for hypertension with CKD?",tid)
     stream_text("What do you know about hair problems",tid)  # should not pollute
     txt,_ = stream_text("Are there contraindications for that dosage?",tid)
-    assert "[1]" in txt or "outside my current" not in txt  # should cite, not boundary
+    assert "[1]" in txt or "outside what I can source" not in txt  # should cite, not boundary
 
 def test_health_reports_storage_mode():
     r=client.get("/health")
