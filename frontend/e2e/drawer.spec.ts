@@ -18,12 +18,33 @@ async function panelX(page: import("@playwright/test").Page): Promise<number> {
   });
 }
 
+/** Wait until the panel stops moving.
+ *
+ * Polling for a value can succeed on a transient read while the spring is still
+ * travelling, which made every measurement downstream race the animation. Two
+ * identical consecutive samples mean it is genuinely at rest.
+ */
+async function settled(page: import("@playwright/test").Page): Promise<number> {
+  let last = Number.NaN;
+  await expect
+    .poll(
+      async () => {
+        const x = await panelX(page);
+        const stable = x === last;
+        last = x;
+        return stable;
+      },
+      { timeout: 5000, intervals: [50] }
+    )
+    .toBe(true);
+  return last;
+}
+
 test.describe("drawer gesture", () => {
   test.beforeEach(async ({ page }) => {
     await page.goto("/");
     await page.getByRole("button", { name: "Open menu" }).click();
-    // Let the opening spring settle before measuring.
-    await expect.poll(() => panelX(page), { timeout: 3000 }).toBeCloseTo(0, 0);
+    expect(await settled(page)).toBeCloseTo(0, 0);
   });
 
   test("tracks the pointer 1:1 while dragging", async ({ page }) => {
@@ -61,7 +82,7 @@ test.describe("drawer gesture", () => {
     await page.waitForTimeout(200);
     await page.mouse.up();
 
-    await expect.poll(() => panelX(page), { timeout: 3000 }).toBeCloseTo(0, 0);
+    expect(await settled(page)).toBeCloseTo(0, 0);
   });
 
   test("a fast flick closes it even from near fully open", async ({ page }) => {
@@ -75,7 +96,7 @@ test.describe("drawer gesture", () => {
     await page.mouse.move(80, 400, { steps: 1 });
     await page.mouse.up();
 
-    await expect.poll(() => panelX(page), { timeout: 3000 }).toBeLessThan(-WIDTH + 5);
+    expect(await settled(page)).toBeLessThan(-WIDTH + 5);
   });
 
   test("can be caught mid-flight and pulled back", async ({ page }) => {
@@ -93,7 +114,7 @@ test.describe("drawer gesture", () => {
     await page.mouse.move(260, 400, { steps: 6 });
     await page.mouse.up();
 
-    await expect.poll(() => panelX(page), { timeout: 3000 }).toBeCloseTo(0, 0);
+    expect(await settled(page)).toBeCloseTo(0, 0);
   });
 
   test("the scrim dims in step with the panel, not at the end", async ({ page }) => {
@@ -116,6 +137,6 @@ test.describe("drawer gesture", () => {
 
   test("tapping the scrim closes it", async ({ page }) => {
     await page.mouse.click(340, 400);
-    await expect.poll(() => panelX(page), { timeout: 3000 }).toBeLessThan(-WIDTH + 5);
+    expect(await settled(page)).toBeLessThan(-WIDTH + 5);
   });
 });

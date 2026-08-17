@@ -1,4 +1,10 @@
+from pathlib import Path
+
 from pydantic_settings import BaseSettings
+
+# app/config.py -> app/ -> backend/ -> repo root
+_BACKEND_DIR = Path(__file__).resolve().parent.parent
+_REPO_ROOT = _BACKEND_DIR.parent
 
 class Settings(BaseSettings):
     DATABASE_URL: str = "postgresql://postgres:postgres@localhost:5432/aura"
@@ -44,7 +50,18 @@ class Settings(BaseSettings):
     EMBED_CACHE_TTL: int = 3600
 
     class Config:
-        env_file = ".env"
+        # Absolute, not "./.env". A bare relative path resolves against the working
+        # directory, so the file was only picked up when the process happened to be
+        # started from the repo root -- and the documented command is
+        # `cd backend && uvicorn ...`, which silently ignored it. Keys looked unset
+        # while the file plainly contained them.
+        #
+        # Both locations are accepted: backend/.env for a backend-only checkout,
+        # and the repo root .env that the frontend also reads.
+        env_file = (
+            str(_BACKEND_DIR / ".env"),
+            str(_REPO_ROOT / ".env"),
+        )
         extra = "ignore"
 
 settings = Settings()

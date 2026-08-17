@@ -57,3 +57,27 @@ def test_only_first_occurrence_of_scheme_is_replaced():
     assert result.startswith("postgresql+psycopg://user:pass@localhost/db?options=")
     # The nested occurrence inside the query string stays untouched.
     assert "options=postgresql://nested" in result
+
+
+# ---------------------------------------------------------------------------
+# .env discovery
+# ---------------------------------------------------------------------------
+
+@pytest.mark.unit
+def test_env_file_paths_are_absolute_and_cover_both_locations():
+    """Settings must find .env regardless of the working directory.
+
+    env_file was the bare relative string ".env", which resolves against the
+    process's working directory. The documented run command is
+    `cd backend && uvicorn ...`, so the repo-root .env was never read: keys were
+    plainly present in the file and arrived as empty strings.
+    """
+    import os
+    from app.config import Settings, _BACKEND_DIR, _REPO_ROOT
+
+    paths = Settings.Config.env_file
+    assert isinstance(paths, tuple), "a single path cannot cover both layouts"
+    for p in paths:
+        assert os.path.isabs(p), f"{p} is relative and depends on the cwd"
+    assert str(_BACKEND_DIR / ".env") in paths
+    assert str(_REPO_ROOT / ".env") in paths

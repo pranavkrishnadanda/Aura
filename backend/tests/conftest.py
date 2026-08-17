@@ -21,6 +21,24 @@ def reset_sse_app_status():
 
 
 @pytest.fixture(autouse=True)
+def pin_provider_for_tests(monkeypatch):
+    """Force the offline provider regardless of what .env or the shell says.
+
+    Without this the suite's behaviour depends on ambient configuration: adding a
+    real key to .env silently switched every generation to a live API call, so
+    tests that assert on the mock provider's exact output started failing, and the
+    suite began costing quota and network flakiness. A test that wants a real or
+    fake provider sets it explicitly.
+    """
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "LLM_PROVIDER", "mock")
+    monkeypatch.setattr(settings, "GEMINI_API_KEY", "")
+    monkeypatch.setattr(settings, "GROQ_API_KEY", "")
+    yield
+
+
+@pytest.fixture(autouse=True)
 def reset_inmemory_stores():
     """Isolate the in-memory fallback stores so tests cannot leak state into each other.
 
