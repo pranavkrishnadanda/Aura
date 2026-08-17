@@ -39,12 +39,21 @@ VUS=500 API_URL=https://<host>/api/v1/chat/stream k6 run backend/tests/load_sse_
 | `backend/tests/performance/` | Performance | Event-loop responsiveness, TTFT, chunking throughput, cache and job-table bounds |
 | `frontend/tests/unit/` | Unit | `streamChat` SSE parsing: split frames, UTF-8 boundaries, multi-line `data:`, abort, single-settle |
 | `frontend/tests/components/` | UI | Chat, AdminUpload, CitationPanel via Testing Library |
+| `frontend/tests/unit/motion.test.ts` | Unit | Momentum projection, boundary resistance, spring convergence/interruption |
 | `frontend/e2e/` | Browser E2E | Playwright against a real Next.js build, backend stubbed at the network layer |
+| `frontend/e2e/integrated.spec.ts` | Contract | **No stubs** — real browser against the real FastAPI process |
+| `frontend/e2e/drawer.spec.ts` | Gesture | Real pointer drags: 1:1 tracking, resistance, flick, catch mid-flight |
 | `backend/tests/load_sse_k6.js` | Load | Concurrent SSE; `http_req_waiting` is the TTFT proxy |
 
 ## Things worth knowing
 
-**No test makes a real network call.** Providers are mocked and Playwright stubs the
+**The integrated project is the only place the two halves meet.** Every other spec
+stubs the API, which verifies the UI behaves given well-formed responses — not
+that the frontend and backend agree on field names, event shapes or citation
+numbering. A stub encodes whatever the frontend already expects, so a contract
+mismatch is invisible to it.
+
+**No test makes a real LLM or embedding call.** Providers are mocked and Playwright stubs the
 API, so the suite needs no database, no LLM key, and no quota. Set `E2E_LIVE_API=1`
 to point Playwright at a running backend instead.
 
