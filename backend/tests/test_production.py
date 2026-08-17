@@ -76,5 +76,9 @@ def test_ready_fails_closed_when_db_down():
         assert r.status_code==503 and body["ready"] is False
 
 def test_upload_validation():
+    # Reset the process-global limiter: upload is 10/minute, so whether this sees
+    # 400 or 429 otherwise depends on how many uploads ran before it.
+    from app.main import limiter
+    limiter.reset()
     r=client.post("/api/v1/documents/upload", files={"file": ("test.txt", b"hello", "text/plain")})
     assert r.status_code==400

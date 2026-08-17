@@ -153,11 +153,11 @@ The one check that matters after deploying is `/health`: if `storage_mode` says
 
 ## Tests
 
-294 across both stacks — unit, integration, E2E, real-time SSE, UI, browser and
+309 across both stacks — unit, integration, E2E, real-time SSE, UI, browser and
 performance. Layout and the non-obvious traps: **[TESTING.md](TESTING.md)**.
 
 ```bash
-cd backend  && uv run pytest -q       # 196
+cd backend  && uv run pytest -q       # 211
 cd frontend && bun run test           # 61  (unit + component)
 cd frontend && bun run test:e2e       # 37  (real browser; bunx playwright install chromium)
 k6 run backend/tests/load_sse_k6.js   # load; http_req_waiting is the TTFT proxy
@@ -201,9 +201,15 @@ A portfolio build, not a production clinical system.
   live in process memory.
 - **No test exercises a real LLM or embedding call.** Every provider is mocked, so
   those two integration points are the least proven in the system.
-- **Grounding is checked, not guaranteed.** Every citation marker is validated
-  against the retrieved sources, and untrusted document text is delimited in the
-  prompt — but a model can still be talked around.
+- **Anyone can write to the corpus by default, and that is the main risk.** A
+  poisoned PDF was demonstrated making a live model obey it instead of its
+  instructions. Restating the rules after the retrieved text fixed the original
+  attack, but a reframing still succeeds on some models roughly one run in three —
+  prompt-level defence is model-dependent mitigation, not a fix. Citation markers
+  are validated and a grounding signal catches fabrication, but neither catches
+  poisoning, because the attacker writes the source the answer is checked against.
+  **Set `ALLOW_ANONYMOUS_UPLOAD=false` before pointing this at anything real** —
+  that is the only measure that removes the attack rather than reducing it.
 
 Free-tier behaviour: Render sleeps after 15 minutes idle, so the first request
 takes ~30s (the UI says so rather than appearing hung); Supabase pauses after

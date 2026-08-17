@@ -346,3 +346,30 @@ def test_top_k_out_of_range_is_rejected_with_422():
         json={"message": "hi", "thread_id": "v1", "top_k": 0},
     )
     assert r2.status_code == 422
+
+
+def test_anonymous_upload_can_be_refused(monkeypatch):
+    """Who may write to the corpus is a security boundary.
+
+    Uploaded text is interpolated into the prompt for other users' questions, and
+    a poisoned PDF was demonstrated making a live model obey it. Prompt hardening
+    stops most attempts but proved model-dependent, so a deployment must be able
+    to close the door entirely.
+    """
+    from app.config import settings
+    from app.main import limiter
+
+    # Upload is capped at 10/minute and the limiter is process-global, so a test
+    # that uploads competes with every other one in the run. Reset it rather than
+    # letting suite order decide whether this test sees 403 or 429.
+    limiter.reset()
+
+    pdf = b"%PDF-1.4\n" + b"x" * 200
+    monkeypatch.setattr(settings, "ALLOW_ANONYMOUS_UPLOAD", False)
+    r = client.post("/api/v1/documents/upload", files={"file": ("a.pdf", pdf, "application/pdf")})
+    assert r.status_code == 403
+    assert "API key" in r.json()["detail"]
+
+    monkeypatch.setattr(settings, "ALLOW_ANONYMOUS_UPLOAD", True)
+    r = client.post("/api/v1/documents/upload", files={"file": ("a.pdf", pdf, "application/pdf")})
+    assert r.status_code != 403

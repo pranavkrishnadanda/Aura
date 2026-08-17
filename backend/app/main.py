@@ -8,6 +8,7 @@ from app.schemas import ChatRequest, ThreadCreate
 from app.db import create_thread, list_threads, get_thread, get_messages, add_message, get_chunk, list_chunks, try_pg_connection, db_error, storage_mode
 from app.rag import (retrieve_async, generate_answer, effective_threshold, retrieval_mode,
                      build_context, build_citations, expand_followup, validate_citations,
+                     grounding_overlap, GROUNDING_FLOOR,
                      is_greeting, CITATION_RE)
 from app.auth import get_current_user
 from slowapi import Limiter
@@ -165,6 +166,10 @@ def list_docs(request: Request):
 @app.post("/api/v1/documents/upload")
 @limiter.limit("10/minute")
 async def upload_pdf(request: Request, background_tasks: BackgroundTasks, file: UploadFile = File(...), user=Depends(get_current_user)):
+    # Uploaded text reaches the prompt for every later question, so who may write
+    # to the corpus is a security boundary, not a convenience setting.
+    if not settings.ALLOW_ANONYMOUS_UPLOAD and user["tier"] != "authenticated":
+        raise HTTPException(403, "Adding documents requires an API key")
     if not file.filename or not file.filename.lower().endswith(".pdf"):
         raise HTTPException(400, "Only PDFs allowed")
 
@@ -293,7 +298,22 @@ async def chat_stream(request: Request, body: ChatRequest, user=Depends(get_curr
         check = None
         if answer and citations:
             ok, invalid = validate_citations(answer, len(citations))
-            check = {"ok": ok, "invalid_markers": invalid, "cited": bool(CITATION_RE.search(answer))}
+            # Marker-in-range only proves the model wrote a number in bounds. This
+            # also asks whether the answer shares any language with the source it
+            # points at, which is what a hijacked model's output fails.
+            overlap = grounding_overlap(answer, citations)
+            check = {
+                "ok": ok, "invalid_markers": invalid,
+                "cited": bool(CITATION_RE.search(answer)),
+                "overlap": round(overlap, 3),
+                "grounded": ok and overlap >= GROUNDING_FLOOR,
+            }
+            if ok and overlap < GROUNDING_FLOOR:
+                logger.error(
+                    "answer cites sources but shares almost none of their language "
+                    "(overlap=%.3f, thread=%s) -- possible prompt injection",
+                    overlap, body.thread_id,
+                )
             if invalid:
                 logger.error("model cited %s but only %d citations exist (thread=%s)",
                              invalid, len(citations), body.thread_id)

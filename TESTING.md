@@ -44,8 +44,34 @@ VUS=500 API_URL=https://<host>/api/v1/chat/stream k6 run backend/tests/load_sse_
 | `frontend/e2e/integrated.spec.ts` | Contract | **No stubs** — real browser against the real FastAPI process |
 | `frontend/e2e/drawer.spec.ts` | Gesture | Real pointer drags: 1:1 tracking, resistance, flick, catch mid-flight |
 | `backend/tests/load_sse_k6.js` | Load | Concurrent SSE; `http_req_waiting` is the TTFT proxy |
+| `backend/scripts/redteam_injection.py` | Adversarial | **Opt-in, needs a live provider.** Corpus-poisoning probes |
 
 ## Things worth knowing
+
+**The suite is pinned to the offline provider.** `conftest` forces
+`LLM_PROVIDER=mock` with blank keys regardless of `.env` or the shell. Without
+that, adding a real key silently switched every generation to a live API call —
+assertions on mock output began failing and runs started costing quota. A test
+wanting a real or fake provider sets it explicitly.
+
+**Adversarial probes are deliberately not in the suite.** The injection defence is
+behavioural, and a mocked model cannot be talked into anything, so proving it
+needs a real provider:
+
+```bash
+cd backend && LLM_PROVIDER=groq uv run python scripts/redteam_injection.py
+```
+
+Each case uploads a poisoned PDF and asks a question that retrieves it. The model
+must report what the document says without doing what it says. Every case bypassed
+the defence before the rules were restated after the context block. Deterministic
+tests cover the prompt *structure*; only this covers the behaviour.
+
+**Drawer tests wait for rest, not for a value.** They assert positions during a
+live animation, so polling for a number can succeed on a transient read
+mid-flight. `settled()` waits for two identical consecutive samples. Three tests
+were flaky until this was found — instrumenting showed the drag itself is exact
+(-80.0px for an 80px drag, every run); the races were in the setup.
 
 **The integrated project is the only place the two halves meet.** Every other spec
 stubs the API, which verifies the UI behaves given well-formed responses — not

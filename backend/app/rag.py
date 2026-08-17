@@ -291,6 +291,41 @@ def out_of_scope_message(query: str) -> str:
 CITATION_RE = re.compile(r"\[(\d+)\]")
 
 
+_WORD_RE = re.compile(r"[a-z0-9]{4,}")
+GROUNDING_FLOOR = 0.12
+
+
+def grounding_overlap(answer: str, citations: List[dict]) -> float:
+    """Fraction of the answer's content words that appear in a cited source.
+
+    Checking that a marker is in range only proves the model wrote a number in
+    bounds. It cannot tell that an answer was actually derived from the source it
+    points at -- a hijacked model happily writes "DEBUGMODE [1]".
+
+    What this catches: fabrication. An answer asserting something absent from
+    every retrieved source scores near zero.
+
+    What it explicitly does NOT catch: corpus poisoning. Measured against a live
+    hijack, the answer "DEBUGMODE [1]" scored overlap 1.0, because the attacker had
+    written the word DEBUGMODE into the document being cited. When the adversary
+    controls the source, agreement with the source proves nothing. The only real
+    defence is to stop untrusted parties writing the corpus -- see
+    ALLOW_ANONYMOUS_UPLOAD.
+
+    A detection signal, not a gate: a short legitimate answer scores low too, so it
+    is reported alongside the citation check rather than used to suppress output.
+    """
+    words = set(_WORD_RE.findall(answer.lower()))
+    if not words or not citations:
+        return 0.0
+    source = set()
+    for c in citations:
+        source |= set(_WORD_RE.findall(str(c.get("chunk_text", "")).lower()))
+    if not source:
+        return 0.0
+    return len(words & source) / len(words)
+
+
 def validate_citations(answer: str, n_citations: int) -> Tuple[bool, List[int]]:
     """Check an answer's citation markers against the context it was given.
 
@@ -331,6 +366,73 @@ def build_user_prompt(question: str, context: str) -> str:
         "If the material does not address the question, say you cannot find "
         "verified guidelines:"
     )
+
+
+_THINK_OPEN = "<think>"
+_THINK_CLOSE = "</think>"
+# Longest prefix of a tag that could still be completed by the next chunk.
+_TAG_HOLD = max(len(_THINK_OPEN), len(_THINK_CLOSE)) - 1
+
+
+def _partial_tag_suffix(buf: str) -> int:
+    """Length of the trailing text that could still become a think tag."""
+    for n in range(min(len(buf), _TAG_HOLD), 0, -1):
+        suffix = buf[-n:]
+        if _THINK_OPEN.startswith(suffix) or _THINK_CLOSE.startswith(suffix):
+            return n
+    return 0
+
+
+async def strip_reasoning(stream):
+    """Drop <think>...</think> blocks from a token stream.
+
+    Reasoning models differ in where they put their chain of thought: some return
+    it in a separate field, others emit it inline. Qwen on Groq streams a full
+    "<think>Here's a thinking process..." block straight into the content, which
+    would be rendered to a clinician as though it were the clinical answer.
+
+    Which model is configured is a deployment choice, so this is enforced here
+    rather than assumed away. Tags can straddle chunk boundaries, so a short tail
+    is held back rather than emitted and regretted.
+    """
+    buf = ""
+    inside = False
+    async for chunk in stream:
+        buf += chunk
+        out = []
+        while buf:
+            if inside:
+                end = buf.find(_THINK_CLOSE)
+                if end == -1:
+                    # Discard the block's body; keep only a possible split close tag.
+                    hold = _partial_tag_suffix(buf)
+                    buf = buf[-hold:] if hold else ""
+                    break
+                buf = buf[end + len(_THINK_CLOSE):]
+                inside = False
+                continue
+            start = buf.find(_THINK_OPEN)
+            if start == -1:
+                # Hold back only a genuine partial tag. Withholding a fixed tail
+                # from every chunk would delay each token by one chunk and re-cut
+                # the stream's boundaries, which matters when time-to-first-token
+                # is the number the product is judged on.
+                hold = _partial_tag_suffix(buf)
+                if hold:
+                    out.append(buf[:-hold])
+                    buf = buf[-hold:]
+                else:
+                    out.append(buf)
+                    buf = ""
+                break
+            out.append(buf[:start])
+            buf = buf[start + len(_THINK_OPEN):]
+            inside = True
+        text = "".join(out)
+        if text:
+            yield text
+    if buf and not inside:
+        yield buf
 
 
 async def _aiter_blocking(sync_iterable):
@@ -446,10 +548,10 @@ async def generate_answer(query: str, retrieved: List[Tuple[dict, float]]):
     provider = settings.LLM_PROVIDER
     try:
         if provider == "groq":
-            async for tok in stream_groq(query, context):
+            async for tok in strip_reasoning(stream_groq(query, context)):
                 yield tok
         elif provider == "gemini":
-            async for tok in stream_gemini(query, context):
+            async for tok in strip_reasoning(stream_gemini(query, context)):
                 yield tok
         else:
             # Offline mock. It may only replay retrieved text verbatim, each span

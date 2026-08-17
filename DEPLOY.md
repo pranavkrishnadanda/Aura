@@ -53,6 +53,7 @@ request wakes it. Everything you ingested survives.
    | `GEMINI_API_KEY` | your key — **required for embeddings even if `LLM_PROVIDER=groq`** |
    | `CORS_ORIGINS` | your Vercel URL, added in step 3 |
    | `LOG_QUERIES` | `false` |
+   | `ALLOW_ANONYMOUS_UPLOAD` | `false` for anything real — see below |
 
 4. Deploy, then **verify it is really on Postgres**:
    ```bash
@@ -122,6 +123,18 @@ Then open the Vercel URL and ask the same question in the UI.
 | Answers cite nothing | Corpus is empty, or every score is under the threshold. `GET /api/v1/documents` shows what is indexed |
 | First request takes 30s | Render free tier cold start. Expected |
 | Uploads say "partial" | Some chunks failed to persist. The job's `error` field says how many |
+
+## The corpus is a security boundary
+
+Uploaded document text is interpolated into the prompt for **other users'**
+questions. A poisoned PDF was demonstrated making a live model obey it rather than
+its own instructions. The prompt is hardened against this and it stops most
+attempts, but the defence proved model-dependent — the same reframing that one
+model refused, another obeyed.
+
+If this deployment is reachable by anyone you do not trust, set
+`ALLOW_ANONYMOUS_UPLOAD=false` and add documents with an API key. That is the only
+measure that removes the attack rather than reducing its odds.
 
 ## Enabling auth
 

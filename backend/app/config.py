@@ -11,7 +11,11 @@ class Settings(BaseSettings):
     LLM_PROVIDER: str = "mock"  # groq | gemini | mock
     GROQ_API_KEY: str = ""
     GEMINI_API_KEY: str = ""
-    GROQ_MODEL: str = "llama3-8b-8192"
+    # Groq's Llama models were withdrawn from this account mid-session; the id
+    # returned 404 after having worked. Reasoning models are also a hazard here:
+    # qwen streams a raw <think> block into the content, which would be rendered
+    # to a clinician as the answer (rag.strip_reasoning removes it defensively).
+    GROQ_MODEL: str = "openai/gpt-oss-120b"
     # gemini-1.5-flash has been retired and is absent from list_models, so every
     # generateContent call 404s. The "-latest" alias is used so this does not rot
     # again the next time a specific version is withdrawn.
@@ -43,6 +47,19 @@ class Settings(BaseSettings):
     RATE_LIMIT_AUTH: str = "300/minute"
     MAX_PDF_MB: int = 50
     ENABLE_AUTH: bool = False  # set True in prod to require X-API-Key
+    # Whether anyone may add documents to the retrieval corpus.
+    #
+    # This is the single most consequential setting here. Uploaded text is
+    # interpolated into the prompt for OTHER users' questions, and a poisoned PDF
+    # was demonstrated making a live model obey it instead of the system prompt.
+    # Restating the rules after the context block stops most attempts, but proved
+    # model-dependent -- the same attack Llama-3.3 refused was obeyed by
+    # gpt-oss-120b -- and the grounding signal cannot catch it either, because the
+    # attacker writes the source the answer is checked against.
+    #
+    # Prompt-level defence is mitigation. Not letting strangers write the corpus is
+    # the fix. True is for a closed demo; set False anywhere real.
+    ALLOW_ANONYMOUS_UPLOAD: bool = True
     # Comma-separated API keys accepted when ENABLE_AUTH is true. Enabling auth
     # without setting these fails closed (every request is rejected) rather than
     # silently admitting everyone.
