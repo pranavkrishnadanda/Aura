@@ -18,7 +18,7 @@ Runs entirely on free tiers. Portfolio/demo build — see [Honest status](#hones
                                         │ HTTPS
                                         ▼
       ┌─────────────────────────────────────────────────────────────┐
-      │  FRONTEND — Next.js 14 (App Router, client-rendered)         │
+      │  FRONTEND — Next.js 16 (App Router, client-rendered)         │
       │  Vercel Hobby  ·  static shell + fetch/SSE to the API        │
       └───────────────────────────┬─────────────────────────────────┘
                                   │  JSON  +  text/event-stream

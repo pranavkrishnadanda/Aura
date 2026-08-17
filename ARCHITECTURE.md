@@ -16,7 +16,7 @@ layout see [TESTING.md](TESTING.md).
                                         │ HTTPS
                                         ▼
       ┌─────────────────────────────────────────────────────────────┐
-      │  FRONTEND — Next.js 14 (App Router, client-rendered)         │
+      │  FRONTEND — Next.js 16 (App Router, client-rendered)         │
       │  Vercel Hobby  ·  static shell + fetch/SSE to the API        │
       └───────────────────────────┬─────────────────────────────────┘
                                   │  JSON  +  text/event-stream
