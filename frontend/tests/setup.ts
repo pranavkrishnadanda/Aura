@@ -42,6 +42,17 @@ beforeEach(() => {
   if (!Element.prototype.scrollTo) {
     Element.prototype.scrollTo = vi.fn() as unknown as Element["scrollTo"];
   }
+  // jsdom implements neither the Pointer Capture API nor scrollIntoView. The
+  // drawer captures the pointer so a drag keeps tracking once it leaves the
+  // panel's bounds, and citation markers scroll their evidence into view.
+  if (!Element.prototype.setPointerCapture) {
+    Element.prototype.setPointerCapture = vi.fn() as unknown as Element["setPointerCapture"];
+    Element.prototype.releasePointerCapture = vi.fn() as unknown as Element["releasePointerCapture"];
+    Element.prototype.hasPointerCapture = (() => false) as unknown as Element["hasPointerCapture"];
+  }
+  if (!Element.prototype.scrollIntoView) {
+    Element.prototype.scrollIntoView = vi.fn() as unknown as Element["scrollIntoView"];
+  }
 });
 
 afterEach(() => {

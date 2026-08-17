@@ -12,6 +12,11 @@
   --rule: #e4e1da;
   --source: #2f4b7c;
   --flag: #9a6b00;
+
+  /* Chrome is a translucent layer the reading column passes beneath, not an
+     opaque strip that consumes the edge of the page. */
+  --chrome: rgba(255, 255, 255, 0.72);
+  --chrome-blur: saturate(180%) blur(20px);
 }
 
 html {
@@ -26,21 +31,44 @@ body {
 }
 
 /* Authored prose. The one place the serif is used, so its presence always means
-   "a model wrote this" rather than "the system knows this". */
+   "a model wrote this" rather than "the system knows this". Tracking is set per
+   size below: a single letter-spacing is always wrong somewhere, because letters
+   read too far apart as type grows and too tight as it shrinks. */
 .prose-clinical {
   font-family: var(--font-prose), Georgia, serif;
+  font-optical-sizing: auto;
   font-size: 1.0625rem;
   line-height: 1.65;
-  letter-spacing: 0.005em;
+  letter-spacing: 0;
 }
 
-/* Small caps label used for structural headings. */
+/* Large display type: tighten as it grows, and pull the leading in with it. */
+.prose-display {
+  font-optical-sizing: auto;
+  line-height: 1.12;
+  letter-spacing: -0.021em;
+}
+
+/* The question restates the user's words at a middling size -- less negative
+   tracking than display, still tighter than body. */
+.prose-question {
+  line-height: 1.28;
+  letter-spacing: -0.011em;
+}
+
+/* Small monospace metadata: open it up slightly, since dense small type loses
+   letter separation first. */
 .label {
   font-size: 0.6875rem;
   letter-spacing: 0.13em;
   text-transform: uppercase;
   color: var(--ink-soft);
   font-weight: 500;
+}
+
+.meta {
+  font-size: 0.6875rem;
+  letter-spacing: 0.012em;
 }
 
 /* A citation marker in the prose, and its matching evidence card. Hovering or
@@ -55,7 +83,7 @@ body {
   padding: 0 0.1em;
   vertical-align: 0.25em;
   cursor: pointer;
-  transition: background-color 120ms ease, border-color 120ms ease;
+  transition: background-color 120ms ease, border-color 120ms ease, transform 100ms ease-out;
 }
 .marker:hover,
 .marker:focus-visible,
@@ -64,24 +92,62 @@ body {
   border-color: var(--source);
   outline: none;
 }
+/* Feedback belongs on the press, not the release: waiting for click to
+   acknowledge an interaction reads as lag. */
+.marker:active { transform: scale(0.92); }
 
+.evidence {
+  transition: border-color 140ms ease, box-shadow 140ms ease;
+}
 .evidence[data-linked="true"] {
   border-color: var(--source);
   box-shadow: inset 3px 0 0 var(--source);
 }
+
+/* Every control acknowledges the pointer going down. */
+.press {
+  transition: transform 100ms ease-out, background-color 120ms ease, opacity 120ms ease;
+}
+.press:active:not(:disabled) { transform: scale(0.975); }
 
 :focus-visible {
   outline: 2px solid var(--source);
   outline-offset: 2px;
 }
 
+/* Where the reading column meets floating chrome, fade it out rather than
+   drawing a hard rule. A 1px divider announces a seam; a short mask reads as
+   content passing underneath. */
+.scroll-edge {
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 14px, #000 calc(100% - 20px), transparent 100%);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 14px, #000 calc(100% - 20px), transparent 100%);
+}
+
 *::-webkit-scrollbar { width: 7px; height: 7px; }
 *::-webkit-scrollbar-thumb { background: var(--rule); border-radius: 9999px; }
 *::-webkit-scrollbar-track { background: transparent; }
 
+/* Reduced motion is not "no feedback" -- it is feedback without travel. Position
+   changes and scaling go; colour and opacity stay, because they carry meaning. */
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
-    animation-duration: 0.01ms !important;
-    transition-duration: 0.01ms !important;
+  .press:active:not(:disabled),
+  .marker:active { transform: none; }
+  .marker, .evidence, .press { transition-duration: 120ms; }
+  * { scroll-behavior: auto !important; }
+}
+
+/* Translucency is a preference, not a given. Frost up rather than blurring. */
+@media (prefers-reduced-transparency: reduce) {
+  :root { --chrome: #ffffff; --chrome-blur: none; }
+  .scroll-edge { -webkit-mask-image: none; mask-image: none; }
+}
+
+@media (prefers-contrast: more) {
+  :root {
+    --chrome: #ffffff;
+    --chrome-blur: none;
+    --ink-soft: #3b4046;
+    --rule: #9aa0a6;
   }
+  .marker { border-bottom-width: 2px; }
 }

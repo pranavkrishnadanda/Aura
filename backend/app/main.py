@@ -71,6 +71,11 @@ def health():
         "threshold": effective_threshold(),
         "configured_threshold": settings.RETRIEVAL_THRESHOLD,
         "tfidf_threshold": settings.TFIDF_THRESHOLD,
+        # Published so the client can enforce the same limit rather than keeping
+        # its own copy. A hardcoded frontend constant had already drifted to 10x
+        # the server's, which means a rejected upload only fails after the whole
+        # body has been sent.
+        "max_pdf_mb": settings.MAX_PDF_MB,
         "pg_reachable": pg,
         "storage_mode": storage_mode(),
         "db_error": db_error(),

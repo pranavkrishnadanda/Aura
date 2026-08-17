@@ -5,6 +5,7 @@ import { Citation, Message } from "@/lib/types";
 import { Prose, Provenance } from "./AnswerProse";
 import CitationPanel from "./CitationPanel";
 import AdminUpload from "./AdminUpload";
+import Drawer from "./Drawer";
 
 /** Per-browser thread id, persisted so a reload resumes the same conversation.
  *
@@ -142,24 +143,10 @@ export default function Chat() {
 
   return (
     <div className="flex h-screen overflow-hidden">
-      {/* Scrim for the mobile slide-over */}
-      {railOpen ? (
-        <button
-          aria-label="Close menu"
-          onClick={() => setRailOpen(false)}
-          className="fixed inset-0 z-30 bg-black/20 md:hidden"
-        />
-      ) : null}
-
-      {/* Rail — identity, threads, and what the system currently knows.
-          A slide-over below md so ingest, history and retrieval state stay
-          reachable on a phone rather than being hidden with the sidebar. */}
-      <aside
-        className={`fixed inset-y-0 left-0 z-40 flex w-[236px] shrink-0 flex-col border-r bg-white transition-transform md:static md:translate-x-0 ${
-          railOpen ? "translate-x-0" : "-translate-x-full"
-        }`}
-        style={{ borderColor: "var(--rule)" }}
-      >
+      {/* Gesture-driven below md; a static column at md and up. The panel tracks
+          the finger, a flick projects forward to decide open or closed, and it can
+          be caught and reversed mid-flight -- none of which a CSS transition can do. */}
+      <Drawer open={railOpen} onOpenChange={setRailOpen}>
         <div className="border-b px-4 py-4" style={{ borderColor: "var(--rule)" }}>
           <div className="text-[15px] font-semibold tracking-tight">Aura</div>
           <div className="mt-0.5 text-[11px]" style={{ color: "var(--ink-soft)" }}>
@@ -170,7 +157,7 @@ export default function Chat() {
         <div className="px-3 pt-3">
           <button
             onClick={newThread}
-            className="w-full rounded-sm border px-3 py-2 text-[12px] font-medium transition-colors hover:bg-[var(--paper)]"
+            className="press w-full rounded-sm border px-3 py-2 text-[12px] font-medium hover:bg-[var(--paper)]"
             style={{ borderColor: "var(--rule)" }}
           >
             New consultation
@@ -184,7 +171,7 @@ export default function Chat() {
           <button
             onClick={() => openThread(sessionThread)}
             aria-current={threadId === sessionThread}
-            className="block w-full truncate rounded-sm px-2 py-1.5 text-left text-[12px]"
+            className="press block w-full truncate rounded-sm px-2 py-1.5 text-left text-[12px]"
             style={{
               background: threadId === sessionThread ? "var(--paper)" : "transparent",
               color: threadId === sessionThread ? "var(--ink)" : "var(--ink-soft)",
@@ -197,7 +184,7 @@ export default function Chat() {
               key={t.id}
               onClick={() => openThread(t.id)}
               aria-current={threadId === t.id}
-              className="block w-full truncate rounded-sm px-2 py-1.5 text-left text-[12px]"
+              className="press block w-full truncate rounded-sm px-2 py-1.5 text-left text-[12px]"
               style={{
                 background: threadId === t.id ? "var(--paper)" : "transparent",
                 color: threadId === t.id ? "var(--ink)" : "var(--ink-soft)",
@@ -233,21 +220,21 @@ export default function Chat() {
         </div>
 
         <div className="border-t px-3 py-3" style={{ borderColor: "var(--rule)" }}>
-          <AdminUpload compact />
+          <AdminUpload compact maxPdfMb={health?.max_pdf_mb} />
         </div>
-      </aside>
+      </Drawer>
 
       {/* Consultation */}
       <main className="flex min-w-0 flex-1 flex-col">
         <div
-          className="flex items-center gap-3 border-b bg-white px-4 py-2.5 md:hidden"
-          style={{ borderColor: "var(--rule)" }}
+          className="sticky top-0 z-20 flex items-center gap-3 border-b px-4 py-2.5 md:hidden"
+          style={{ borderColor: "var(--rule)", background: "var(--chrome)", backdropFilter: "var(--chrome-blur)" }}
         >
           <button
             onClick={() => setRailOpen(true)}
             aria-label="Open menu"
             aria-expanded={railOpen}
-            className="rounded-sm border px-2.5 py-1.5 text-[11px]"
+            className="press rounded-sm border px-2.5 py-1.5 text-[11px]"
             style={{ borderColor: "var(--rule)" }}
           >
             Menu
@@ -262,11 +249,11 @@ export default function Chat() {
             </span>
           ) : null}
         </div>
-        <div ref={scroller} className="flex-1 overflow-y-auto">
+        <div ref={scroller} className="scroll-edge flex-1 overflow-y-auto">
           <div className="mx-auto max-w-[68ch] px-6 py-10">
             {messages.length === 0 && (
               <div>
-                <h1 className="prose-clinical text-[38px] font-medium leading-[1.15] tracking-[-0.015em]">
+                <h1 className="prose-clinical prose-display text-[38px] font-medium">
                   Ask a clinical question.
                   <br />
                   <span style={{ color: "var(--source)" }}>Read the source it came from.</span>
@@ -284,7 +271,7 @@ export default function Chat() {
                       <button
                         key={ex}
                         onClick={() => setInput(ex)}
-                        className="text-left text-[12px] underline decoration-dotted underline-offset-4 hover:decoration-solid"
+                        className="press text-left text-[12px] underline decoration-dotted underline-offset-4 hover:decoration-solid"
                         style={{ color: "var(--source)" }}
                       >
                         {ex}
@@ -300,7 +287,7 @@ export default function Chat() {
                 m.role === "user" ? (
                   <div key={i}>
                     <div className="label">Question</div>
-                    <p className="prose-clinical mt-1.5 text-[19px] font-medium leading-snug">
+                    <p className="prose-clinical prose-question mt-1.5 text-[19px] font-medium">
                       {m.content}
                     </p>
                   </div>
@@ -357,7 +344,7 @@ export default function Chat() {
         </div>
 
         {/* Composer */}
-        <div className="border-t bg-white" style={{ borderColor: "var(--rule)" }}>
+        <div className="border-t" style={{ borderColor: "var(--rule)", background: "var(--chrome)", backdropFilter: "var(--chrome-blur)" }}>
           <div className="mx-auto max-w-[68ch] px-6 py-4">
             <div className="flex items-end gap-2">
               <input
@@ -372,7 +359,7 @@ export default function Chat() {
               <button
                 onClick={send}
                 disabled={streaming || !input.trim()}
-                className="shrink-0 rounded-sm px-4 py-2 text-[12px] font-medium text-white transition-opacity disabled:opacity-30"
+                className="press shrink-0 rounded-sm px-4 py-2 text-[12px] font-medium text-white disabled:opacity-30"
                 style={{ background: "var(--ink)" }}
               >
                 Send

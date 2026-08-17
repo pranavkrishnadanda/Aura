@@ -32,7 +32,7 @@ export default defineConfig({
   projects: [
     {
       name: "chromium",
-      testIgnore: /integrated\.spec\.ts/,
+      testIgnore: /(integrated|drawer)\.spec\.ts/,
       use: { ...devices["Desktop Chrome"] },
     },
     // Verifies the layout survives a narrow viewport; this is where responsive

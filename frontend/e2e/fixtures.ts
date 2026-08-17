@@ -50,7 +50,7 @@ export async function stubApi(
       status: 200,
       contentType: "application/json",
       body: JSON.stringify(
-        opts.health ?? { status: "ok", retrieval_mode: "pgvector", threshold: 0.85, storage_mode: "postgres" }
+        opts.health ?? { status: "ok", retrieval_mode: "pgvector", threshold: 0.85, storage_mode: "postgres", max_pdf_mb: 50 }
       ),
     })
   );

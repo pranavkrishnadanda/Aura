@@ -2,11 +2,15 @@
 import { useState } from "react";
 import { API_URL, authHeaders } from "@/lib/api";
 
-const MAX_PDF_MB = 50;
+/** Fallback only. The real limit comes from the server via /health, so the two
+ *  cannot disagree -- this constant had already drifted to 10x the backend's,
+ *  which means an oversized upload is only rejected after the whole body is sent. */
+const DEFAULT_MAX_PDF_MB = 50;
 const POLL_MS = 1000;
 const POLL_TIMEOUT_MS = 5 * 60 * 1000;
 
-export default function AdminUpload({ compact }: { compact?: boolean }) {
+export default function AdminUpload({ compact, maxPdfMb }: { compact?: boolean; maxPdfMb?: number }) {
+  const MAX_PDF_MB = maxPdfMb ?? DEFAULT_MAX_PDF_MB;
   const [status, setStatus] = useState("");
   const [busy, setBusy] = useState(false);
 
