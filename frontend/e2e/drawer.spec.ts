@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures";
+import { expect, test } from "./fixtures";
 
 /**
  * The drawer is the one genuinely gesture-driven surface in the app, so it is the
@@ -98,7 +98,9 @@ test.describe("drawer gesture", () => {
 
   test("the scrim dims in step with the panel, not at the end", async ({ page }) => {
     const scrimOpacity = () =>
-      page.evaluate(() => Number(getComputedStyle(document.querySelector("[aria-hidden]")! as HTMLElement).opacity));
+      page.evaluate(() =>
+        Number(getComputedStyle(document.querySelector("[aria-hidden]")! as HTMLElement).opacity)
+      );
 
     expect(await scrimOpacity()).toBeGreaterThan(0.8);
 

@@ -144,6 +144,8 @@ export function velocityFrom(samples: { pos: number; t: number }[], window = 100
 
 /** True when the user has asked for reduced motion. */
 export function prefersReducedMotion(): boolean {
-  return typeof window !== "undefined" &&
-    !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  return (
+    typeof window !== "undefined" &&
+    !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
+  );
 }

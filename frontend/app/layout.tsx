@@ -1,5 +1,5 @@
 import "./globals.css";
-import { Spectral, IBM_Plex_Mono } from "next/font/google";
+import { IBM_Plex_Mono, Spectral } from "next/font/google";
 
 /** Prose face. Clinical guidance is read, not scanned, so the model's authored
  *  text is set in a reading serif. */

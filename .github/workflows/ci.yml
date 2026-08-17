@@ -110,9 +110,12 @@ jobs:
       - name: Install
         working-directory: frontend
         run: npm ci
-      - name: Typecheck
+      - name: Lint and format (Biome)
         working-directory: frontend
-        run: npx tsc --noEmit
+        run: npm run lint
+      - name: Typecheck (TypeScript native)
+        working-directory: frontend
+        run: npm run typecheck
       - name: Unit and component tests
         working-directory: frontend
         run: npm run test

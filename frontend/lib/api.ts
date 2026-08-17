@@ -43,7 +43,11 @@ export async function streamChat(
   try {
     const res = await fetch(`${API_URL}/api/v1/chat/stream`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "text/event-stream", ...authHeaders() },
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "text/event-stream",
+        ...authHeaders(),
+      },
       body: JSON.stringify({ message, thread_id: threadId }),
       signal,
     });
@@ -93,7 +97,8 @@ export async function streamChat(
         else if (event === "token") {
           full += json.token ?? "";
           cbs.onToken(json.token ?? "");
-        } else if (event === "done") finish(() => cbs.onDone(json.full_text ?? full, json.citation_check));
+        } else if (event === "done")
+          finish(() => cbs.onDone(json.full_text ?? full, json.citation_check));
         // The backend emits this when generation throws mid-stream. It was
         // previously ignored entirely, so the UI just stopped receiving tokens
         // and sat on "streaming…" with no explanation.
@@ -101,7 +106,9 @@ export async function streamChat(
       }
     }
     // Stream ended without a done event (proxy cut, backend restart, Render sleep).
-    finish(() => (full ? cbs.onDone(full) : cbs.onError("Connection closed before a response completed")));
+    finish(() =>
+      full ? cbs.onDone(full) : cbs.onError("Connection closed before a response completed")
+    );
   } catch (err: any) {
     if (err?.name === "AbortError") {
       finish(() => cbs.onDone(""));

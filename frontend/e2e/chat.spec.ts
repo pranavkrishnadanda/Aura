@@ -1,4 +1,4 @@
-import { test, expect, groundedStream, SEED_CITATION } from "./fixtures";
+import { expect, groundedStream, SEED_CITATION, test } from "./fixtures";
 
 test.describe("clinical chat", () => {
   test("streams a grounded answer with its evidence visible", async ({ page }) => {
@@ -6,7 +6,9 @@ test.describe("clinical chat", () => {
 
     // Empty state offers the canned clinical prompts.
     await expect(page.getByRole("heading", { name: /Ask a clinical question/ })).toBeVisible();
-    await page.getByRole("button", { name: "First-line therapy for hypertension with CKD?" }).click();
+    await page
+      .getByRole("button", { name: "First-line therapy for hypertension with CKD?" })
+      .click();
 
     const input = page.getByPlaceholder(/Ask a clinical question/i);
     await expect(input).toHaveValue("First-line therapy for hypertension with CKD?");
@@ -80,13 +82,17 @@ test.describe("clinical chat", () => {
         status: 200,
         headers: { "Content-Type": "text/event-stream" },
         body: groundedStream(
-          ["That's outside my current clinical intelligence scope — I can only cite verified guidelines."],
+          [
+            "That's outside my current clinical intelligence scope — I can only cite verified guidelines.",
+          ],
           []
         ),
       })
     );
     await page.goto("/");
-    await page.getByPlaceholder(/Ask a clinical question/i).fill("what do you know about hair problems");
+    await page
+      .getByPlaceholder(/Ask a clinical question/i)
+      .fill("what do you know about hair problems");
     await page.getByRole("button", { name: "Send" }).click();
 
     await expect(page.getByText(/outside my current clinical intelligence scope/)).toBeVisible();

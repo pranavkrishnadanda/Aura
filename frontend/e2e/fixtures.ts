@@ -1,4 +1,4 @@
-import { test as base, expect, Page } from "@playwright/test";
+import { test as base, expect, type Page } from "@playwright/test";
 
 /**
  * Network stubs for hermetic E2E.
@@ -50,7 +50,13 @@ export async function stubApi(
       status: 200,
       contentType: "application/json",
       body: JSON.stringify(
-        opts.health ?? { status: "ok", retrieval_mode: "pgvector", threshold: 0.85, storage_mode: "postgres", max_pdf_mb: 50 }
+        opts.health ?? {
+          status: "ok",
+          retrieval_mode: "pgvector",
+          threshold: 0.85,
+          storage_mode: "postgres",
+          max_pdf_mb: 50,
+        }
       ),
     })
   );
@@ -60,7 +66,12 @@ export async function stubApi(
       return route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify({ id: "thr_new1", title: "New consultation", created_at: "", user_id: "anonymous" }),
+        body: JSON.stringify({
+          id: "thr_new1",
+          title: "New consultation",
+          created_at: "",
+          user_id: "anonymous",
+        }),
       });
     }
     return route.fulfill({
@@ -89,11 +100,12 @@ export async function stubApi(
   );
 }
 
-export const test = base.extend<{ stubbed: void }>({
+export const test = base.extend<{ stubbed: undefined }>({
   stubbed: [
     async ({ page }, use) => {
       await stubApi(page);
-      await use();
+      // The fixture carries no value; it exists for its setup side-effect.
+      await use(undefined);
     },
     { auto: true },
   ],

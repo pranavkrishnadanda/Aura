@@ -1,6 +1,6 @@
-import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { describe, expect, it, vi } from "vitest";
 import CitationPanel from "@/components/CitationPanel";
 import type { Citation } from "@/lib/types";
 
@@ -49,14 +49,14 @@ describe("CitationPanel", () => {
     // dangerouslySetInnerHTML or similar, this payload would execute/inject.
     const malicious: Citation = {
       ...citation,
-      chunk_text: 'Ref <img src=x onerror=alert(1)> and <script>alert(1)</script> below',
+      chunk_text: "Ref <img src=x onerror=alert(1)> and <script>alert(1)</script> below",
     };
     const { container } = render(<CitationPanel citation={malicious} onClose={vi.fn()} />);
 
     expect(container.querySelector("script")).toBeNull();
     expect(container.querySelector("img")).toBeNull();
     expect(
-      screen.getByText('Ref <img src=x onerror=alert(1)> and <script>alert(1)</script> below')
+      screen.getByText("Ref <img src=x onerror=alert(1)> and <script>alert(1)</script> below")
     ).toBeInTheDocument();
   });
 });

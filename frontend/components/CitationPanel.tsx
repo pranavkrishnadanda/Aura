@@ -1,5 +1,5 @@
 "use client";
-import { Citation } from "@/lib/types";
+import type { Citation } from "@/lib/types";
 
 /**
  * One retrieved source, shown verbatim.
@@ -21,7 +21,12 @@ export default function CitationPanel({
   onClose?: () => void;
 }) {
   if (!citation) return null;
+  // Hovering a source to highlight its marker is a pointer-only enhancement on a
+  // non-interactive card. The keyboard path to the same linkage already exists on
+  // the marker button, which fires the identical callback on focus. Giving this
+  // card an interactive role would announce a control that does not exist.
   return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: pointer-only enhancement; keyboard path is on the marker button
     <div
       data-testid="citation-panel"
       data-linked={linked ? "true" : "false"}
@@ -45,6 +50,7 @@ export default function CitationPanel({
         </span>
         {onClose ? (
           <button
+            type="button"
             onClick={onClose}
             className="shrink-0 text-[11px] underline underline-offset-2"
             style={{ color: "var(--ink-soft)" }}

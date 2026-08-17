@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 
 /**
  * Real browser against the real backend. No route interception anywhere.
@@ -17,7 +17,8 @@ import { test, expect } from "@playwright/test";
 test.describe("frontend and backend agree", () => {
   test("a seeded clinical question streams a grounded, citable answer", async ({ page }) => {
     await page.goto("/");
-    await page.getByPlaceholder(/Ask a clinical question/i)
+    await page
+      .getByPlaceholder(/Ask a clinical question/i)
       .fill("What is first-line therapy for hypertension with CKD?");
     await page.getByRole("button", { name: "Send" }).click();
 
@@ -43,7 +44,9 @@ test.describe("frontend and backend agree", () => {
 
   test("an out-of-scope question refuses instead of inventing a source", async ({ page }) => {
     await page.goto("/");
-    await page.getByPlaceholder(/Ask a clinical question/i).fill("what do you know about hair problems");
+    await page
+      .getByPlaceholder(/Ask a clinical question/i)
+      .fill("what do you know about hair problems");
     await page.getByRole("button", { name: "Send" }).click();
 
     await expect(page.getByText(/outside what I can source/)).toBeVisible({ timeout: 20_000 });
@@ -57,7 +60,9 @@ test.describe("frontend and backend agree", () => {
     const threadId = await page.evaluate(() => window.localStorage.getItem("aura.thread_id"));
     expect(threadId).toBeTruthy();
 
-    await page.getByPlaceholder(/Ask a clinical question/i).fill("Contraindications for lisinopril?");
+    await page
+      .getByPlaceholder(/Ask a clinical question/i)
+      .fill("Contraindications for lisinopril?");
     await page.getByRole("button", { name: "Send" }).click();
     await expect(page.getByText("Question")).toBeVisible({ timeout: 20_000 });
     await expect(page.getByText(/angioedema|ACE inhibitors/).first()).toBeVisible();
@@ -119,7 +124,9 @@ test.describe("frontend and backend agree", () => {
     await expect(page.getByText(/undefined/)).toHaveCount(0);
 
     // The ingested text is now retrievable through the real retrieval path.
-    await page.getByPlaceholder(/Ask a clinical question/i).fill("rivaroxaban dosing atrial fibrillation");
+    await page
+      .getByPlaceholder(/Ask a clinical question/i)
+      .fill("rivaroxaban dosing atrial fibrillation");
     await page.getByRole("button", { name: "Send" }).click();
     await expect(page.getByText(/Rivaroxaban 20mg/).first()).toBeVisible({ timeout: 20_000 });
   });

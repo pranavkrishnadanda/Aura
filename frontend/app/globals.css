@@ -83,7 +83,10 @@ body {
   padding: 0 0.1em;
   vertical-align: 0.25em;
   cursor: pointer;
-  transition: background-color 120ms ease, border-color 120ms ease, transform 100ms ease-out;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease,
+    transform 100ms ease-out;
 }
 .marker:hover,
 .marker:focus-visible,
@@ -94,10 +97,14 @@ body {
 }
 /* Feedback belongs on the press, not the release: waiting for click to
    acknowledge an interaction reads as lag. */
-.marker:active { transform: scale(0.92); }
+.marker:active {
+  transform: scale(0.92);
+}
 
 .evidence {
-  transition: border-color 140ms ease, box-shadow 140ms ease;
+  transition:
+    border-color 140ms ease,
+    box-shadow 140ms ease;
 }
 .evidence[data-linked="true"] {
   border-color: var(--source);
@@ -106,9 +113,14 @@ body {
 
 /* Every control acknowledges the pointer going down. */
 .press {
-  transition: transform 100ms ease-out, background-color 120ms ease, opacity 120ms ease;
+  transition:
+    transform 100ms ease-out,
+    background-color 120ms ease,
+    opacity 120ms ease;
 }
-.press:active:not(:disabled) { transform: scale(0.975); }
+.press:active:not(:disabled) {
+  transform: scale(0.975);
+}
 
 :focus-visible {
   outline: 2px solid var(--source);
@@ -119,27 +131,61 @@ body {
    drawing a hard rule. A 1px divider announces a seam; a short mask reads as
    content passing underneath. */
 .scroll-edge {
-  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 14px, #000 calc(100% - 20px), transparent 100%);
-  mask-image: linear-gradient(to bottom, transparent 0, #000 14px, #000 calc(100% - 20px), transparent 100%);
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 14px,
+    #000 calc(100% - 20px),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 14px,
+    #000 calc(100% - 20px),
+    transparent 100%
+  );
 }
 
-*::-webkit-scrollbar { width: 7px; height: 7px; }
-*::-webkit-scrollbar-thumb { background: var(--rule); border-radius: 9999px; }
-*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--rule);
+  border-radius: 9999px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
 
 /* Reduced motion is not "no feedback" -- it is feedback without travel. Position
    changes and scaling go; colour and opacity stay, because they carry meaning. */
 @media (prefers-reduced-motion: reduce) {
   .press:active:not(:disabled),
-  .marker:active { transform: none; }
-  .marker, .evidence, .press { transition-duration: 120ms; }
-  * { scroll-behavior: auto !important; }
+  .marker:active {
+    transform: none;
+  }
+  .marker,
+  .evidence,
+  .press {
+    transition-duration: 120ms;
+  }
+  * {
+    scroll-behavior: auto !important;
+  }
 }
 
 /* Translucency is a preference, not a given. Frost up rather than blurring. */
 @media (prefers-reduced-transparency: reduce) {
-  :root { --chrome: #ffffff; --chrome-blur: none; }
-  .scroll-edge { -webkit-mask-image: none; mask-image: none; }
+  :root {
+    --chrome: #ffffff;
+    --chrome-blur: none;
+  }
+  .scroll-edge {
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
 }
 
 @media (prefers-contrast: more) {
@@ -149,5 +195,7 @@ body {
     --ink-soft: #3b4046;
     --rule: #9aa0a6;
   }
-  .marker { border-bottom-width: 2px; }
+  .marker {
+    border-bottom-width: 2px;
+  }
 }

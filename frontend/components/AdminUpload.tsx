@@ -9,7 +9,13 @@ const DEFAULT_MAX_PDF_MB = 50;
 const POLL_MS = 1000;
 const POLL_TIMEOUT_MS = 5 * 60 * 1000;
 
-export default function AdminUpload({ compact, maxPdfMb }: { compact?: boolean; maxPdfMb?: number }) {
+export default function AdminUpload({
+  compact,
+  maxPdfMb,
+}: {
+  compact?: boolean;
+  maxPdfMb?: number;
+}) {
   const MAX_PDF_MB = maxPdfMb ?? DEFAULT_MAX_PDF_MB;
   const [status, setStatus] = useState("");
   const [busy, setBusy] = useState(false);
@@ -30,7 +36,11 @@ export default function AdminUpload({ compact, maxPdfMb }: { compact?: boolean; 
     const fd = new FormData();
     fd.append("file", f);
     try {
-      const r = await fetch(`${API_URL}/api/v1/documents/upload`, { method: "POST", body: fd, headers: authHeaders() });
+      const r = await fetch(`${API_URL}/api/v1/documents/upload`, {
+        method: "POST",
+        body: fd,
+        headers: authHeaders(),
+      });
       const j = await r.json();
       if (!r.ok) {
         setStatus(`Error: ${j.detail || JSON.stringify(j)}`);
@@ -56,7 +66,9 @@ export default function AdminUpload({ compact, maxPdfMb }: { compact?: boolean; 
       await new Promise((res) => setTimeout(res, POLL_MS));
       let job: any;
       try {
-        const r = await fetch(`${API_URL}/api/v1/documents/jobs/${jobId}`, { headers: authHeaders() });
+        const r = await fetch(`${API_URL}/api/v1/documents/jobs/${jobId}`, {
+          headers: authHeaders(),
+        });
         if (!r.ok) {
           setStatus(`Error: job ${jobId} not found (HTTP ${r.status})`);
           return;
@@ -67,7 +79,8 @@ export default function AdminUpload({ compact, maxPdfMb }: { compact?: boolean; 
         return;
       }
       if (job.status === "completed") {
-        const embedded = job.embedded > 0 ? `${job.embedded} embedded` : "TF-IDF only (no embeddings)";
+        const embedded =
+          job.embedded > 0 ? `${job.embedded} embedded` : "TF-IDF only (no embeddings)";
         setStatus(`${job.doc_title} · ${job.pages} pages · ${job.chunks} chunks · ${embedded}`);
         return;
       }
@@ -94,7 +107,10 @@ export default function AdminUpload({ compact, maxPdfMb }: { compact?: boolean; 
           {busy ? "Working…" : `Add a PDF (max ${MAX_PDF_MB}MB)`}
         </label>
         {status ? (
-          <div className="mt-2 break-words text-[11px] leading-4" style={{ color: "var(--ink-soft)" }}>
+          <div
+            className="mt-2 break-words text-[11px] leading-4"
+            style={{ color: "var(--ink-soft)" }}
+          >
             {status}
           </div>
         ) : null}

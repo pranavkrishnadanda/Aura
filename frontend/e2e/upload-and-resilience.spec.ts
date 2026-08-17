@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures";
+import { expect, test } from "./fixtures";
 
 test.describe("document ingest", () => {
   test("reports real counts from the job, never 'undefined'", async ({ page }) => {
@@ -9,7 +9,12 @@ test.describe("document ingest", () => {
       route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify({ job_id: "job_abc", status: "queued", filename: "protocol.pdf", bytes: 2048 }),
+        body: JSON.stringify({
+          job_id: "job_abc",
+          status: "queued",
+          filename: "protocol.pdf",
+          bytes: 2048,
+        }),
       })
     );
     await page.route("**/api/v1/documents/jobs/*", (route) =>
@@ -17,8 +22,13 @@ test.describe("document ingest", () => {
         status: 200,
         contentType: "application/json",
         body: JSON.stringify({
-          job_id: "job_abc", status: "completed", doc_title: "protocol.pdf",
-          pages: 12, chunks: 34, stored: 34, embedded: 34,
+          job_id: "job_abc",
+          status: "completed",
+          doc_title: "protocol.pdf",
+          pages: 12,
+          chunks: 34,
+          stored: 34,
+          embedded: 34,
         }),
       })
     );
@@ -37,20 +47,33 @@ test.describe("document ingest", () => {
   test("surfaces a failed background ingest", async ({ page }) => {
     await page.route("**/api/v1/documents/upload", (route) =>
       route.fulfill({
-        status: 200, contentType: "application/json",
-        body: JSON.stringify({ job_id: "job_bad", status: "queued", filename: "broken.pdf", bytes: 10 }),
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          job_id: "job_bad",
+          status: "queued",
+          filename: "broken.pdf",
+          bytes: 10,
+        }),
       })
     );
     await page.route("**/api/v1/documents/jobs/*", (route) =>
       route.fulfill({
-        status: 200, contentType: "application/json",
-        body: JSON.stringify({ job_id: "job_bad", status: "failed", error: "no chunks could be stored" }),
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          job_id: "job_bad",
+          status: "failed",
+          error: "no chunks could be stored",
+        }),
       })
     );
 
     await page.goto("/");
     await page.setInputFiles('input[type="file"]', {
-      name: "broken.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4"),
+      name: "broken.pdf",
+      mimeType: "application/pdf",
+      buffer: Buffer.from("%PDF-1.4"),
     });
 
     await expect(page.getByText(/Ingest failed: no chunks could be stored/)).toBeVisible();
@@ -58,11 +81,17 @@ test.describe("document ingest", () => {
 
   test("shows the server's message when upload is rejected", async ({ page }) => {
     await page.route("**/api/v1/documents/upload", (route) =>
-      route.fulfill({ status: 400, contentType: "application/json", body: JSON.stringify({ detail: "Not a valid PDF" }) })
+      route.fulfill({
+        status: 400,
+        contentType: "application/json",
+        body: JSON.stringify({ detail: "Not a valid PDF" }),
+      })
     );
     await page.goto("/");
     await page.setInputFiles('input[type="file"]', {
-      name: "evil.pdf", mimeType: "application/pdf", buffer: Buffer.from("MZnotapdf"),
+      name: "evil.pdf",
+      mimeType: "application/pdf",
+      buffer: Buffer.from("MZnotapdf"),
     });
     await expect(page.getByText(/Not a valid PDF/)).toBeVisible();
   });
@@ -81,7 +110,11 @@ test.describe("resilience", () => {
   test("does not crash when /threads returns a non-array error body", async ({ page }) => {
     // Regression: the sidebar called .map() on whatever came back.
     await page.route("**/api/v1/threads", (route) =>
-      route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ detail: "boom" }) })
+      route.fulfill({
+        status: 500,
+        contentType: "application/json",
+        body: JSON.stringify({ detail: "boom" }),
+      })
     );
     await page.goto("/");
     await expect(page.getByRole("complementary").getByText("Aura")).toBeVisible();

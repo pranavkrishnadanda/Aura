@@ -1,5 +1,5 @@
 "use client";
-import { Citation, CitationCheck } from "@/lib/types";
+import type { Citation, CitationCheck } from "@/lib/types";
 
 /** Splits the model's prose on citation markers and renders each as a control
  *  linked to its evidence card. A marker with no matching source is shown as
@@ -60,7 +60,13 @@ export function Prose({
 }
 
 /** One line stating what the system can actually vouch for in this answer. */
-export function Provenance({ citations, check }: { citations: Citation[]; check?: CitationCheck | null }) {
+export function Provenance({
+  citations,
+  check,
+}: {
+  citations: Citation[];
+  check?: CitationCheck | null;
+}) {
   if (!citations.length) return null;
   const bad = check?.invalid_markers?.length ?? 0;
   const uncited = check && !check.cited;

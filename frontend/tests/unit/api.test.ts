@@ -1,7 +1,7 @@
-import { describe, it, expect, vi } from "vitest";
-import { streamChat, authHeaders } from "@/lib/api";
+import { describe, expect, it, vi } from "vitest";
 import type { StreamCallbacks } from "@/lib/api";
-import { sseStream, sseResponse, frame } from "../setup";
+import { authHeaders, streamChat } from "@/lib/api";
+import { frame, sseResponse, sseStream } from "../setup";
 
 /** Build a fresh set of spy callbacks for one streamChat() call. */
 function makeCbs(): StreamCallbacks {
@@ -24,14 +24,16 @@ describe("streamChat", () => {
     };
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(
-        sseResponse([
-          frame("meta", { citations: [{ idx: 1 }], is_refusal: false }),
-          frame("token", { token: "Hello" }),
-          frame("token", { token: " world" }),
-          frame("done", { full_text: "Hello world" }),
-        ])
-      )
+      vi
+        .fn()
+        .mockResolvedValue(
+          sseResponse([
+            frame("meta", { citations: [{ idx: 1 }], is_refusal: false }),
+            frame("token", { token: "Hello" }),
+            frame("token", { token: " world" }),
+            frame("done", { full_text: "Hello world" }),
+          ])
+        )
     );
 
     await streamChat("hi", "t1", cbs);
@@ -193,12 +195,17 @@ describe("streamChat", () => {
     const cbs = makeCbs();
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(sseResponse([frame("token", { token: "hi" }), frame("done", { full_text: "hi" })]))
+      vi
+        .fn()
+        .mockResolvedValue(
+          sseResponse([frame("token", { token: "hi" }), frame("done", { full_text: "hi" })])
+        )
     );
 
     await streamChat("hi", "t1", cbs);
 
-    const settleCount = (cbs.onDone as any).mock.calls.length + (cbs.onError as any).mock.calls.length;
+    const settleCount =
+      (cbs.onDone as any).mock.calls.length + (cbs.onError as any).mock.calls.length;
     expect(settleCount).toBe(1);
   });
 
@@ -206,12 +213,17 @@ describe("streamChat", () => {
     const cbs = makeCbs();
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(sseResponse([frame("token", { token: "hi" }), frame("error", { detail: "boom" })]))
+      vi
+        .fn()
+        .mockResolvedValue(
+          sseResponse([frame("token", { token: "hi" }), frame("error", { detail: "boom" })])
+        )
     );
 
     await streamChat("hi", "t1", cbs);
 
-    const settleCount = (cbs.onDone as any).mock.calls.length + (cbs.onError as any).mock.calls.length;
+    const settleCount =
+      (cbs.onDone as any).mock.calls.length + (cbs.onError as any).mock.calls.length;
     expect(settleCount).toBe(1);
   });
 
@@ -232,7 +244,8 @@ describe("streamChat", () => {
     ctrl.abort();
     await promise;
 
-    const settleCount = (cbs.onDone as any).mock.calls.length + (cbs.onError as any).mock.calls.length;
+    const settleCount =
+      (cbs.onDone as any).mock.calls.length + (cbs.onError as any).mock.calls.length;
     expect(settleCount).toBe(1);
   });
 
@@ -271,9 +284,11 @@ describe("streamChat", () => {
     const cbs = makeCbs();
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(
-        sseResponse(["event: token\ndata: {not valid json\n\n", frame("token", { token: "ok" })])
-      )
+      vi
+        .fn()
+        .mockResolvedValue(
+          sseResponse(["event: token\ndata: {not valid json\n\n", frame("token", { token: "ok" })])
+        )
     );
 
     await streamChat("hi", "t1", cbs);

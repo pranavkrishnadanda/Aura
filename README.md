@@ -163,6 +163,16 @@ cd frontend && npm run test:e2e       # 37  (real browser; npx playwright instal
 k6 run backend/tests/load_sse_k6.js   # load; http_req_waiting is the TTFT proxy
 ```
 
+### Toolchain
+
+| | | |
+|---|---|---|
+| Framework | Next.js 16 + React 18 | Turbopack is the default bundler |
+| Typecheck | TypeScript 7 (`npm run typecheck`) | The native compiler — what shipped as `tsgo` |
+| Lint + format | Biome (`npm run lint`) | Replaces ESLint and Prettier |
+
+Measured on this repo: build 5.8s → 1.5s, typecheck 0.75s → 0.24s, lint 12ms.
+
 CI runs the backend suite twice — against real Postgres+pgvector, and with no
 database at all — plus a Playwright project that drives the **real** backend with
 no stubs, so a frontend/backend contract mismatch fails there rather than in

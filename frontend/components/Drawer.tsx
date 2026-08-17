@@ -1,6 +1,13 @@
 "use client";
-import { useEffect, useRef, useCallback } from "react";
-import { project, rubberband, spring, velocityFrom, prefersReducedMotion, SpringHandle } from "@/lib/motion";
+import { useCallback, useEffect, useRef } from "react";
+import {
+  prefersReducedMotion,
+  project,
+  rubberband,
+  type SpringHandle,
+  spring,
+  velocityFrom,
+} from "@/lib/motion";
 
 const WIDTH = 236;
 
@@ -28,7 +35,11 @@ export default function Drawer({
   const scrim = useRef<HTMLDivElement | null>(null);
   const anim = useRef<SpringHandle | null>(null);
   const x = useRef(open ? 0 : -WIDTH);
-  const drag = useRef<{ startX: number; grabbed: number; samples: { pos: number; t: number }[] } | null>(null);
+  const drag = useRef<{
+    startX: number;
+    grabbed: number;
+    samples: { pos: number; t: number }[];
+  } | null>(null);
 
   const paint = useCallback((value: number) => {
     x.current = value;
@@ -74,7 +85,7 @@ export default function Drawer({
   useEffect(() => {
     paint(open ? 0 : -WIDTH);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [paint, open]);
 
   const onPointerDown = (e: React.PointerEvent) => {
     if (e.pointerType === "mouse" && e.button !== 0) return;
@@ -135,7 +146,11 @@ export default function Drawer({
         onPointerUp={endDrag}
         onPointerCancel={endDrag}
         className="fixed inset-y-0 left-0 z-40 flex w-[236px] shrink-0 touch-pan-y flex-col border-r md:static md:!transform-none"
-        style={{ borderColor: "var(--rule)", background: "var(--chrome)", backdropFilter: "var(--chrome-blur)" }}
+        style={{
+          borderColor: "var(--rule)",
+          background: "var(--chrome)",
+          backdropFilter: "var(--chrome-blur)",
+        }}
       >
         {children}
       </aside>

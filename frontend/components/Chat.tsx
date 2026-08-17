@@ -1,10 +1,10 @@
 "use client";
-import { useState, useRef, useEffect } from "react";
-import { streamChat, API_URL, authHeaders } from "@/lib/api";
-import { Citation, Message } from "@/lib/types";
+import { useEffect, useRef, useState } from "react";
+import { API_URL, authHeaders, streamChat } from "@/lib/api";
+import type { Citation, Message } from "@/lib/types";
+import AdminUpload from "./AdminUpload";
 import { Prose, Provenance } from "./AnswerProse";
 import CitationPanel from "./CitationPanel";
-import AdminUpload from "./AdminUpload";
 import Drawer from "./Drawer";
 
 /** Per-browser thread id, persisted so a reload resumes the same conversation.
@@ -48,7 +48,9 @@ export default function Chat() {
   const [railOpen, setRailOpen] = useState(false);
   const wakeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  useEffect(() => { scroller.current?.scrollTo(0, scroller.current.scrollHeight); }, [messages, streaming]);
+  useEffect(() => {
+    scroller.current?.scrollTo(0, scroller.current.scrollHeight);
+  }, []);
 
   useEffect(() => {
     const id = initialThreadId();
@@ -66,19 +68,24 @@ export default function Chat() {
     // Retrieval mode is reported rather than assumed: the app answers from
     // embeddings or from keyword matching depending on what is actually available,
     // and a demo should not imply the former while doing the latter.
-    fetch(`${API_URL}/health`).then((r) => r.json()).then(setHealth).catch(() => {});
+    fetch(`${API_URL}/health`)
+      .then((r) => r.json())
+      .then(setHealth)
+      .catch(() => {});
   }, []);
 
   useEffect(() => () => abortRef.current?.abort(), []);
 
   async function newThread() {
     const r = await fetch(`${API_URL}/api/v1/threads`, {
-      method: "POST", headers: { "Content-Type": "application/json", ...authHeaders() },
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify({ title: `Consult ${new Date().toLocaleDateString()}` }),
     });
     const t = await r.json();
     setThreads((prev) => [t, ...prev]);
-    setThreadId(t.id); setMessages([]);
+    setThreadId(t.id);
+    setMessages([]);
   }
 
   async function openThread(id: string) {
@@ -89,7 +96,9 @@ export default function Chat() {
     setThreadId(id);
     setRailOpen(false);
     try {
-      const r = await fetch(`${API_URL}/api/v1/threads/${encodeURIComponent(id)}/messages`, { headers: authHeaders() });
+      const r = await fetch(`${API_URL}/api/v1/threads/${encodeURIComponent(id)}/messages`, {
+        headers: authHeaders(),
+      });
       const data = await r.json();
       setMessages(Array.isArray(data) ? data : []);
     } catch {}
@@ -121,12 +130,25 @@ export default function Chat() {
       });
 
     try {
-      await streamChat(q, threadId, {
-        onMeta: (cits) => { stopWaking(); metaCites = cits as Citation[]; },
-        onToken: (tok) => { stopWaking(); acc += tok; replaceLast({ content: acc, citations: metaCites }); },
-        onDone: (full, check) => replaceLast({ content: full || acc, citations: metaCites, check }),
-        onError: (e) => replaceLast({ content: `Couldn't complete that: ${e}`, citations: [] }),
-      }, ctrl.signal);
+      await streamChat(
+        q,
+        threadId,
+        {
+          onMeta: (cits) => {
+            stopWaking();
+            metaCites = cits as Citation[];
+          },
+          onToken: (tok) => {
+            stopWaking();
+            acc += tok;
+            replaceLast({ content: acc, citations: metaCites });
+          },
+          onDone: (full, check) =>
+            replaceLast({ content: full || acc, citations: metaCites, check }),
+          onError: (e) => replaceLast({ content: `Couldn't complete that: ${e}`, citations: [] }),
+        },
+        ctrl.signal
+      );
     } catch (e: any) {
       replaceLast({ content: `Couldn't complete that: ${e?.message || e}`, citations: [] });
     } finally {
@@ -156,6 +178,7 @@ export default function Chat() {
 
         <div className="px-3 pt-3">
           <button
+            type="button"
             onClick={newThread}
             className="press w-full rounded-sm border px-3 py-2 text-[12px] font-medium hover:bg-[var(--paper)]"
             style={{ borderColor: "var(--rule)" }}
@@ -169,6 +192,7 @@ export default function Chat() {
         </div>
         <nav className="mt-2 flex-1 overflow-y-auto px-2 pb-3">
           <button
+            type="button"
             onClick={() => openThread(sessionThread)}
             aria-current={threadId === sessionThread}
             className="press block w-full truncate rounded-sm px-2 py-1.5 text-left text-[12px]"
@@ -181,6 +205,7 @@ export default function Chat() {
           </button>
           {threads.map((t) => (
             <button
+              type="button"
               key={t.id}
               onClick={() => openThread(t.id)}
               aria-current={threadId === t.id}
@@ -228,9 +253,14 @@ export default function Chat() {
       <main className="flex min-w-0 flex-1 flex-col">
         <div
           className="sticky top-0 z-20 flex items-center gap-3 border-b px-4 py-2.5 md:hidden"
-          style={{ borderColor: "var(--rule)", background: "var(--chrome)", backdropFilter: "var(--chrome-blur)" }}
+          style={{
+            borderColor: "var(--rule)",
+            background: "var(--chrome)",
+            backdropFilter: "var(--chrome-blur)",
+          }}
         >
           <button
+            type="button"
             onClick={() => setRailOpen(true)}
             aria-label="Open menu"
             aria-expanded={railOpen}
@@ -259,16 +289,16 @@ export default function Chat() {
                   <span style={{ color: "var(--source)" }}>Read the source it came from.</span>
                 </h1>
                 <p className="prose-clinical mt-5 text-[16px]" style={{ color: "var(--ink-soft)" }}>
-                  Every answer is assembled from indexed guidelines and protocols. Each
-                  reference opens the exact passage and page it was drawn from, quoted
-                  without alteration. If nothing in the corpus covers your question, Aura
-                  says so rather than guessing.
+                  Every answer is assembled from indexed guidelines and protocols. Each reference
+                  opens the exact passage and page it was drawn from, quoted without alteration. If
+                  nothing in the corpus covers your question, Aura says so rather than guessing.
                 </p>
                 <div className="mt-7">
                   <div className="label">Try</div>
                   <div className="mt-2.5 flex flex-col items-start gap-1.5">
                     {SUGGESTIONS.map((ex) => (
                       <button
+                        type="button"
                         key={ex}
                         onClick={() => setInput(ex)}
                         className="press text-left text-[12px] underline decoration-dotted underline-offset-4 hover:decoration-solid"
@@ -335,16 +365,23 @@ export default function Chat() {
                 className="mt-6 rounded-sm border px-4 py-3 text-[12px] leading-relaxed"
                 style={{ borderColor: "var(--flag)", color: "var(--flag)" }}
               >
-                <span className="font-medium">Waking the server.</span> This deployment runs
-                on a free tier that sleeps when idle, so the first request can take around
-                30 seconds. Later questions respond immediately.
+                <span className="font-medium">Waking the server.</span> This deployment runs on a
+                free tier that sleeps when idle, so the first request can take around 30 seconds.
+                Later questions respond immediately.
               </div>
             )}
           </div>
         </div>
 
         {/* Composer */}
-        <div className="border-t" style={{ borderColor: "var(--rule)", background: "var(--chrome)", backdropFilter: "var(--chrome-blur)" }}>
+        <div
+          className="border-t"
+          style={{
+            borderColor: "var(--rule)",
+            background: "var(--chrome)",
+            backdropFilter: "var(--chrome-blur)",
+          }}
+        >
           <div className="mx-auto max-w-[68ch] px-6 py-4">
             <div className="flex items-end gap-2">
               <input
@@ -357,6 +394,7 @@ export default function Chat() {
                 style={{ borderColor: "var(--rule)" }}
               />
               <button
+                type="button"
                 onClick={send}
                 disabled={streaming || !input.trim()}
                 className="press shrink-0 rounded-sm px-4 py-2 text-[12px] font-medium text-white disabled:opacity-30"
@@ -366,8 +404,8 @@ export default function Chat() {
               </button>
             </div>
             <p className="mt-2 text-[11px]" style={{ color: "var(--ink-soft)" }}>
-              Reference tool for clinicians. Not a diagnosis, and not a substitute for
-              clinical judgement.
+              Reference tool for clinicians. Not a diagnosis, and not a substitute for clinical
+              judgement.
             </p>
           </div>
         </div>

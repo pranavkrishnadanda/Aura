@@ -33,7 +33,11 @@ function installLocalStorage() {
     },
   };
   vi.stubGlobal("localStorage", mock);
-  Object.defineProperty(window, "localStorage", { value: mock, configurable: true, writable: true });
+  Object.defineProperty(window, "localStorage", {
+    value: mock,
+    configurable: true,
+    writable: true,
+  });
 }
 
 beforeEach(() => {
@@ -47,7 +51,8 @@ beforeEach(() => {
   // panel's bounds, and citation markers scroll their evidence into view.
   if (!Element.prototype.setPointerCapture) {
     Element.prototype.setPointerCapture = vi.fn() as unknown as Element["setPointerCapture"];
-    Element.prototype.releasePointerCapture = vi.fn() as unknown as Element["releasePointerCapture"];
+    Element.prototype.releasePointerCapture =
+      vi.fn() as unknown as Element["releasePointerCapture"];
     Element.prototype.hasPointerCapture = (() => false) as unknown as Element["hasPointerCapture"];
   }
   if (!Element.prototype.scrollIntoView) {

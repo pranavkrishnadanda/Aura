@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from "vitest";
-import { project, rubberband, velocityFrom, spring } from "@/lib/motion";
+import { describe, expect, it, vi } from "vitest";
+import { project, rubberband, spring, velocityFrom } from "@/lib/motion";
 
 describe("project — momentum landing point", () => {
   it("returns zero for a release with no velocity", () => {
@@ -56,20 +56,30 @@ describe("velocityFrom", () => {
 
   it("computes px/s over the sample window", () => {
     // 100px in 100ms = 1000px/s
-    expect(velocityFrom([{ pos: 0, t: 0 }, { pos: 100, t: 100 }])).toBeCloseTo(1000, 0);
+    expect(
+      velocityFrom([
+        { pos: 0, t: 0 },
+        { pos: 100, t: 100 },
+      ])
+    ).toBeCloseTo(1000, 0);
   });
 
   it("ignores samples older than the window, so it reflects the recent gesture", () => {
     const samples = [
-      { pos: 0, t: 0 },      // stale: outside the 100ms window
+      { pos: 0, t: 0 }, // stale: outside the 100ms window
       { pos: 0, t: 900 },
-      { pos: 50, t: 1000 },  // 50px in 100ms = 500px/s
+      { pos: 50, t: 1000 }, // 50px in 100ms = 500px/s
     ];
     expect(velocityFrom(samples, 100)).toBeCloseTo(500, 0);
   });
 
   it("returns zero when the pointer was held still", () => {
-    expect(velocityFrom([{ pos: 20, t: 0 }, { pos: 20, t: 100 }])).toBe(0);
+    expect(
+      velocityFrom([
+        { pos: 20, t: 0 },
+        { pos: 20, t: 100 },
+      ])
+    ).toBe(0);
   });
 });
 
@@ -110,8 +120,12 @@ describe("spring", () => {
   it("honours initial velocity, so a release has no seam between drag and animation", async () => {
     const withKick: number[] = [];
     const without: number[] = [];
-    await new Promise<void>((d) => spring(0, 100, (v) => withKick.push(v), { velocity: 800, response: 0.3 }, d));
-    await new Promise<void>((d) => spring(0, 100, (v) => without.push(v), { velocity: 0, response: 0.3 }, d));
+    await new Promise<void>((d) =>
+      spring(0, 100, (v) => withKick.push(v), { velocity: 800, response: 0.3 }, d)
+    );
+    await new Promise<void>((d) =>
+      spring(0, 100, (v) => without.push(v), { velocity: 0, response: 0.3 }, d)
+    );
     // A spring launched with the finger's speed covers ground sooner.
     expect(withKick[1]).toBeGreaterThan(without[1]);
   });
@@ -120,13 +134,18 @@ describe("spring", () => {
     let handle!: ReturnType<typeof spring>;
     const frames: number[] = [];
     await new Promise<void>((done) => {
-      handle = spring(0, 500, (v) => {
-        frames.push(v);
-        if (frames.length === 3) {
-          handle.stop();
-          done();
-        }
-      }, { response: 0.5 });
+      handle = spring(
+        0,
+        500,
+        (v) => {
+          frames.push(v);
+          if (frames.length === 3) {
+            handle.stop();
+            done();
+          }
+        },
+        { response: 0.5 }
+      );
     });
     const atStop = frames.length;
     // Velocity is non-zero mid-flight; a re-target seeded with it avoids the
@@ -140,14 +159,27 @@ describe("spring", () => {
     let current = 0;
     let handle!: ReturnType<typeof spring>;
     await new Promise<void>((done) => {
-      handle = spring(0, 500, (v) => {
-        current = v;
-        if (v > 50) {
-          handle.stop();
-          // Reverse from where it actually is, carrying its velocity.
-          spring(current, 0, (v2) => { current = v2; }, { velocity: handle.velocity() }, done);
-        }
-      }, { response: 0.4 });
+      handle = spring(
+        0,
+        500,
+        (v) => {
+          current = v;
+          if (v > 50) {
+            handle.stop();
+            // Reverse from where it actually is, carrying its velocity.
+            spring(
+              current,
+              0,
+              (v2) => {
+                current = v2;
+              },
+              { velocity: handle.velocity() },
+              done
+            );
+          }
+        },
+        { response: 0.4 }
+      );
     });
     expect(current).toBe(0);
   });

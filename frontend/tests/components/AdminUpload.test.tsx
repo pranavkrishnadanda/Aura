@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, act } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import AdminUpload from "@/components/AdminUpload";
 
 /** Locate the hidden file input rendered by the compact variant. */
@@ -8,7 +8,9 @@ function fileInput(): HTMLInputElement {
 }
 
 function pdfFile(name = "protocol.pdf", sizeBytes = 1024): File {
-  const file = new File([new Uint8Array(Math.min(sizeBytes, 1024))], name, { type: "application/pdf" });
+  const file = new File([new Uint8Array(Math.min(sizeBytes, 1024))], name, {
+    type: "application/pdf",
+  });
   Object.defineProperty(file, "size", { value: sizeBytes });
   return file;
 }
@@ -48,7 +50,12 @@ describe("AdminUpload", () => {
       if (url.includes("/documents/upload")) {
         return {
           ok: true,
-          json: async () => ({ job_id: "job_1", status: "queued", filename: "protocol.pdf", bytes: 1024 }),
+          json: async () => ({
+            job_id: "job_1",
+            status: "queued",
+            filename: "protocol.pdf",
+            bytes: 1024,
+          }),
         };
       }
       if (url.includes("/documents/jobs/job_1")) {
@@ -84,7 +91,9 @@ describe("AdminUpload", () => {
       await vi.advanceTimersByTimeAsync(1000);
     });
 
-    expect(fetchMock.mock.calls.some((c) => String(c[0]).includes("/documents/jobs/job_1"))).toBe(true);
+    expect(fetchMock.mock.calls.some((c) => String(c[0]).includes("/documents/jobs/job_1"))).toBe(
+      true
+    );
     expect(screen.getByText(/Phase III Trial Protocol/)).toBeInTheDocument();
     expect(screen.getByText(/42 pages/)).toBeInTheDocument();
     expect(screen.getByText(/118 chunks/)).toBeInTheDocument();
@@ -94,7 +103,10 @@ describe("AdminUpload", () => {
   it('renders the error when the job status is "failed"', async () => {
     const fetchMock = vi.fn(async (url: string) => {
       if (url.includes("/documents/upload")) {
-        return { ok: true, json: async () => ({ job_id: "job_2", status: "queued", filename: "x.pdf", bytes: 1 }) };
+        return {
+          ok: true,
+          json: async () => ({ job_id: "job_2", status: "queued", filename: "x.pdf", bytes: 1 }),
+        };
       }
       if (url.includes("/documents/jobs/job_2")) {
         return { ok: true, json: async () => ({ status: "failed", error: "corrupt PDF" }) };
@@ -117,7 +129,10 @@ describe("AdminUpload", () => {
   it('renders the partial-indexing warning when the job status is "partial"', async () => {
     const fetchMock = vi.fn(async (url: string) => {
       if (url.includes("/documents/upload")) {
-        return { ok: true, json: async () => ({ job_id: "job_3", status: "queued", filename: "x.pdf", bytes: 1 }) };
+        return {
+          ok: true,
+          json: async () => ({ job_id: "job_3", status: "queued", filename: "x.pdf", bytes: 1 }),
+        };
       }
       if (url.includes("/documents/jobs/job_3")) {
         return { ok: true, json: async () => ({ status: "partial", error: "3 pages failed OCR" }) };
@@ -135,7 +150,9 @@ describe("AdminUpload", () => {
     });
 
     expect(
-      screen.getByText(/Partially indexed: 3 pages failed OCR\. Some of this document is not searchable\./)
+      screen.getByText(
+        /Partially indexed: 3 pages failed OCR\. Some of this document is not searchable\./
+      )
     ).toBeInTheDocument();
   });
 
@@ -166,7 +183,16 @@ describe("AdminUpload", () => {
     const fetchMock = vi.fn(async (url: string) => {
       if (url.includes("/documents/upload")) return uploadPromise;
       if (url.includes("/documents/jobs/job_4")) {
-        return { ok: true, json: async () => ({ status: "completed", doc_title: "Doc", pages: 1, chunks: 1, embedded: 1 }) };
+        return {
+          ok: true,
+          json: async () => ({
+            status: "completed",
+            doc_title: "Doc",
+            pages: 1,
+            chunks: 1,
+            embedded: 1,
+          }),
+        };
       }
       throw new Error(`unexpected fetch url: ${url}`);
     });
@@ -184,7 +210,10 @@ describe("AdminUpload", () => {
     expect(screen.getByText("Working…")).toBeInTheDocument();
 
     await act(async () => {
-      resolveUpload({ ok: true, json: async () => ({ job_id: "job_4", status: "queued", filename: "x.pdf", bytes: 1 }) });
+      resolveUpload({
+        ok: true,
+        json: async () => ({ job_id: "job_4", status: "queued", filename: "x.pdf", bytes: 1 }),
+      });
     });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1000);

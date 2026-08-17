@@ -1,8 +1,8 @@
-import { describe, it, expect, vi, beforeAll, beforeEach } from "vitest";
-import { render, screen, fireEvent, act, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import Chat from "@/components/Chat";
-import { sseResponse, frame } from "../setup";
+import { frame, sseResponse } from "../setup";
 
 // jsdom does not implement Element.scrollTo; Chat.tsx calls it to keep the
 // transcript pinned to the bottom on every new message.
@@ -37,7 +37,7 @@ beforeEach(() => {
   installMemoryLocalStorage();
 });
 
-const API_URL = "http://localhost:8000";
+const _API_URL = "http://localhost:8000";
 
 type ChatStreamHandler = (body: any, signal?: AbortSignal) => Response | Promise<Response>;
 
@@ -46,11 +46,13 @@ type ChatStreamHandler = (body: any, signal?: AbortSignal) => Response | Promise
  * GET /threads (sidebar list), POST /threads (new thread), GET
  * /threads/:id/messages (switch thread), POST /chat/stream (send).
  */
-function makeFetch(opts: {
-  threads?: any;
-  threadMessages?: Record<string, any[]>;
-  chatStream?: ChatStreamHandler;
-} = {}) {
+function makeFetch(
+  opts: {
+    threads?: any;
+    threadMessages?: Record<string, any[]>;
+    chatStream?: ChatStreamHandler;
+  } = {}
+) {
   const threads = opts.threads ?? [];
   const threadMessages = opts.threadMessages ?? {};
   const chatStream: ChatStreamHandler =
@@ -65,7 +67,12 @@ function makeFetch(opts: {
   return vi.fn(async (url: string, init?: any) => {
     const u = String(url);
     if (u.endsWith("/api/v1/threads") && (!init?.method || init.method === "GET")) {
-      return { ok: true, status: 200, headers: new Headers(), json: async () => threads } as Response;
+      return {
+        ok: true,
+        status: 200,
+        headers: new Headers(),
+        json: async () => threads,
+      } as Response;
     }
     if (u.endsWith("/api/v1/threads") && init?.method === "POST") {
       return {
@@ -78,7 +85,12 @@ function makeFetch(opts: {
     const msgMatch = u.match(/\/api\/v1\/threads\/([^/]+)\/messages$/);
     if (msgMatch) {
       const id = decodeURIComponent(msgMatch[1]);
-      return { ok: true, status: 200, headers: new Headers(), json: async () => threadMessages[id] ?? [] } as Response;
+      return {
+        ok: true,
+        status: 200,
+        headers: new Headers(),
+        json: async () => threadMessages[id] ?? [],
+      } as Response;
     }
     if (u.endsWith("/api/v1/chat/stream")) {
       const body = init?.body ? JSON.parse(init.body) : {};
@@ -116,9 +128,15 @@ describe("Chat - empty state", () => {
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
 
     expect(screen.getByText(/Ask a clinical question\./)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "First-line therapy for hypertension with CKD?" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Contraindications for lisinopril?" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Enoxaparin dosing for VTE prophylaxis?" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "First-line therapy for hypertension with CKD?" })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Contraindications for lisinopril?" })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Enoxaparin dosing for VTE prophylaxis?" })
+    ).toBeInTheDocument();
   });
 
   it("populates the input when a suggested question is clicked", async () => {
@@ -128,7 +146,9 @@ describe("Chat - empty state", () => {
 
     await user.click(screen.getByRole("button", { name: "Contraindications for lisinopril?" }));
 
-    expect(screen.getByPlaceholderText(PLACEHOLDER)).toHaveValue("Contraindications for lisinopril?");
+    expect(screen.getByPlaceholderText(PLACEHOLDER)).toHaveValue(
+      "Contraindications for lisinopril?"
+    );
   });
 });
 
@@ -139,7 +159,13 @@ describe("Chat - sending a message", () => {
       "fetch",
       makeFetch({
         chatStream: () =>
-          ({ ok: true, status: 200, body: ctrl.stream, headers: new Headers(), json: async () => ({}) } as Response),
+          ({
+            ok: true,
+            status: 200,
+            body: ctrl.stream,
+            headers: new Headers(),
+            json: async () => ({}),
+          }) as Response,
       })
     );
     const user = userEvent.setup();
@@ -183,7 +209,13 @@ describe("Chat - sending a message", () => {
       "fetch",
       makeFetch({
         chatStream: () =>
-          ({ ok: true, status: 200, body: ctrl.stream, headers: new Headers(), json: async () => ({}) } as Response),
+          ({
+            ok: true,
+            status: 200,
+            body: ctrl.stream,
+            headers: new Headers(),
+            json: async () => ({}),
+          }) as Response,
       })
     );
     const user = userEvent.setup();
@@ -363,7 +395,13 @@ describe("Chat - switching threads", () => {
         threadMessages: { thr_other: [] },
         chatStream: (_body, signal) => {
           capturedSignal = signal;
-          return { ok: true, status: 200, body: ctrl.stream, headers: new Headers(), json: async () => ({}) } as Response;
+          return {
+            ok: true,
+            status: 200,
+            body: ctrl.stream,
+            headers: new Headers(),
+            json: async () => ({}),
+          } as Response;
         },
       })
     );
