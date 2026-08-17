@@ -34,7 +34,7 @@ test.describe("drawer gesture", () => {
     // Dragged 80px left, so the panel sits ~80px left. Content must move with the
     // finger, not jump when the gesture ends.
     await expect.poll(() => panelX(page)).toBeLessThan(-60);
-    await expect.poll(() => panelX(page)).toBeGreaterThan(-100);
+    expect(await panelX(page)).toBeGreaterThan(-100);
     await page.mouse.up();
   });
 
@@ -43,11 +43,12 @@ test.describe("drawer gesture", () => {
     await page.mouse.down();
     await page.mouse.move(300, 400, { steps: 10 }); // 200px past the open bound
 
-    const x = await panelX(page);
+    // Poll rather than read once: the transform is applied through React's event
+    // handling, so a single read can land before the move has been painted.
     // It moves -- a frozen panel reads as a hung interface -- but far less than
     // the 200px dragged.
-    expect(x).toBeGreaterThan(0);
-    expect(x).toBeLessThan(80);
+    await expect.poll(() => panelX(page)).toBeGreaterThan(0);
+    expect(await panelX(page)).toBeLessThan(80);
     await page.mouse.up();
   });
 
@@ -78,12 +79,11 @@ test.describe("drawer gesture", () => {
   });
 
   test("can be caught mid-flight and pulled back", async ({ page }) => {
-    // Start it closing, then grab it before it settles. A CSS transition would
-    // run to completion first; the spring hands over from its live position.
-    await page.mouse.move(200, 400);
-    await page.mouse.down();
-    await page.mouse.move(60, 400, { steps: 3 });
-    await page.mouse.up();
+    // Start it closing from fully open with no flick, so the spring has the whole
+    // width to travel and the catch window is as wide as the interaction allows.
+    // A hard flick closes in a fraction of that, which made this race the animation
+    // under parallel load rather than testing interruption.
+    await page.mouse.click(340, 400); // scrim: closes from x=0, zero velocity
 
     // Catch it while it is still travelling. The grab must land on the panel,
     // which by now has moved left -- grabbing where it used to be would hit the
@@ -109,9 +109,8 @@ test.describe("drawer gesture", () => {
     await page.mouse.move(80, 400, { steps: 8 });
 
     // Roughly half closed, so roughly half dimmed -- the scrim follows the finger.
-    const mid = await scrimOpacity();
-    expect(mid).toBeGreaterThan(0.2);
-    expect(mid).toBeLessThan(0.8);
+    await expect.poll(scrimOpacity).toBeLessThan(0.8);
+    expect(await scrimOpacity()).toBeGreaterThan(0.2);
     await page.mouse.up();
   });
 

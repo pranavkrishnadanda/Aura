@@ -72,8 +72,8 @@ LLM_PROVIDER=mock uv run uvicorn app.main:app --port 8000
 ```bash
 # Terminal 2 — frontend on :3000
 cd frontend
-npm install                                # first time only
-npm run dev
+bun install                                # first time only
+bun run dev
 ```
 
 Open **http://localhost:3000**.
@@ -158,8 +158,8 @@ performance. Layout and the non-obvious traps: **[TESTING.md](TESTING.md)**.
 
 ```bash
 cd backend  && uv run pytest -q       # 196
-cd frontend && npm test               # 61  (unit + component)
-cd frontend && npm run test:e2e       # 37  (real browser; npx playwright install chromium)
+cd frontend && bun run test           # 61  (unit + component)
+cd frontend && bun run test:e2e       # 37  (real browser; bunx playwright install chromium)
 k6 run backend/tests/load_sse_k6.js   # load; http_req_waiting is the TTFT proxy
 ```
 
@@ -167,11 +167,16 @@ k6 run backend/tests/load_sse_k6.js   # load; http_req_waiting is the TTFT proxy
 
 | | | |
 |---|---|---|
+| Runtime + package manager | Bun | `bun install`, `bun run`, `bunx` — no npm/npx anywhere |
 | Framework | Next.js 16 + React 18 | Turbopack is the default bundler |
-| Typecheck | TypeScript 7 (`npm run typecheck`) | The native compiler — what shipped as `tsgo` |
-| Lint + format | Biome (`npm run lint`) | Replaces ESLint and Prettier |
+| Typecheck | TypeScript 7 (`bun run typecheck`) | The native compiler — what shipped as `tsgo` |
+| Lint + format | Biome (`bun run lint`) | Replaces ESLint and Prettier |
 
-Measured on this repo: build 5.8s → 1.5s, typecheck 0.75s → 0.24s, lint 12ms.
+Measured on this repo: build 5.8s → 1.5s, typecheck 0.75s → 0.24s, lint 30ms,
+cold install 12.5s for 317 packages.
+
+`bun.lock` is the only lockfile — `package-lock.json` was removed. Two lockfiles
+in one tree is also what made Turbopack unable to infer the project root.
 
 CI runs the backend suite twice — against real Postgres+pgvector, and with no
 database at all — plus a Playwright project that drives the **real** backend with

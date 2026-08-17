@@ -14,14 +14,14 @@ uv run pytest -m "not slow" -q         # skip the slow ones
 uv run pytest --cov=app --cov-report=term-missing
 
 # Frontend — unit + component
-cd frontend && npm test
-npm run test:watch
-npm run test:coverage
+cd frontend && bun run test
+bun run test:watch
+bun run test:coverage
 
 # Frontend — real browser
-npx playwright install chromium        # once
-npm run test:e2e
-npx playwright test --ui               # interactive
+bunx playwright install chromium        # once
+bun run test:e2e
+bunx playwright test --ui               # interactive
 
 # Load / performance
 k6 run backend/tests/load_sse_k6.js

@@ -102,40 +102,36 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: oven-sh/setup-bun@v2
         with:
-          node-version: 20
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
+          bun-version: latest
       - name: Install
         working-directory: frontend
-        run: npm ci
+        run: bun install --frozen-lockfile
       - name: Lint and format (Biome)
         working-directory: frontend
-        run: npm run lint
+        run: bun run lint
       - name: Typecheck (TypeScript native)
         working-directory: frontend
-        run: npm run typecheck
+        run: bun run typecheck
       - name: Unit and component tests
         working-directory: frontend
-        run: npm run test
+        run: bun run test
       - name: Build
         working-directory: frontend
-        run: npm run build
+        run: bun run build
 
   e2e:
     name: E2E (Playwright)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: oven-sh/setup-bun@v2
         with:
-          node-version: 20
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
+          bun-version: latest
       - name: Install
         working-directory: frontend
-        run: npm ci
+        run: bun install --frozen-lockfile
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
@@ -144,16 +140,16 @@ jobs:
         run: uv sync
       - name: Install browsers
         working-directory: frontend
-        run: npx playwright install --with-deps chromium
+        run: bunx playwright install --with-deps chromium
       - name: Stubbed specs
         working-directory: frontend
-        run: npx playwright test --project=chromium --project=mobile
+        run: bunx playwright test --project=chromium --project=mobile
       # No stubs: a real browser against the real FastAPI process. The stubbed
       # projects encode whatever the frontend already expects, so a contract
       # mismatch between the two halves is invisible to them.
       - name: Integrated specs (real backend)
         working-directory: frontend
-        run: npx playwright test --project=integrated
+        run: bunx playwright test --project=integrated
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
