@@ -209,7 +209,7 @@ def test_get_seeded_chunk_returns_200():
     assert r.status_code == 200
     body = r.json()
     assert body["id"] == "chk_001"
-    assert body["doc_id"] == "doc_fda_2024"
+    assert body["doc_id"] == "doc_demo_htn"
 
 
 def test_get_unknown_chunk_returns_404():
@@ -225,10 +225,10 @@ def test_list_documents_groups_chunks_by_doc_id():
     r = client.get("/api/v1/documents")
     assert r.status_code == 200
     docs = {d["doc_id"]: d for d in r.json()}
-    assert docs["doc_fda_2024"]["chunks"] == 2
-    assert docs["doc_fda_2024"]["pages"] == 2
-    assert docs["doc_trial_nct042"]["chunks"] == 1
-    assert docs["doc_trial_nct042"]["pages"] == 1
+    assert docs["doc_demo_htn"]["chunks"] == 2
+    assert docs["doc_demo_htn"]["pages"] == 2
+    assert docs["doc_demo_anticoag"]["chunks"] == 1
+    assert docs["doc_demo_anticoag"]["pages"] == 1
 
 
 def test_list_documents_returns_503_when_list_chunks_raises(monkeypatch):

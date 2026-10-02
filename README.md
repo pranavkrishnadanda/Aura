@@ -4,7 +4,24 @@ Ask a clinical question, get an answer assembled only from indexed guidelines an
 protocols, with every claim traceable to the page it came from. If nothing in the
 corpus covers the question, Aura says so instead of guessing.
 
-Runs entirely on free tiers. Portfolio/demo build — see [Honest status](#honest-status).
+![Aura answering a clinical question with a cited, validated source](docs/screenshot.png)
+<sub>Local run with the mock provider and no database (hence keyword retrieval and the storage warning). Demo corpus is synthetic.</sub>
+
+## Highlights
+
+- **Grounded or silent.** Answers are built only from retrieved chunks; when
+  nothing clears the similarity threshold, Aura refuses instead of guessing.
+- **Citations are verified, not trusted.** Sources are streamed *before*
+  generation starts, and every `[n]` in the answer is checked server-side
+  against the real source list before the response is finalised.
+- **Streaming end to end.** FastAPI SSE (`meta` → `token` → `done`) into a
+  Next.js client that handles disconnects, cold starts and mid-stream errors.
+- **Degrades visibly.** Without a database or embedding key it falls back to
+  in-memory storage and TF-IDF retrieval, and `/health` and the UI say so.
+- **Red-teamed.** A poisoned PDF was shown to hijack a live model; the defences
+  and their measured limits are in [Known limitations](#known-limitations).
+- **Tested across the stack:** 329 tests — unit, integration, SSE, UI, real-browser
+  Playwright against the real backend, plus a k6 load script.
 
 ---
 
@@ -159,31 +176,15 @@ The one check that matters after deploying is `/health`: if `storage_mode` says
 
 ## Tests
 
-309 across both stacks — unit, integration, E2E, real-time SSE, UI, browser and
-performance. Layout and the non-obvious traps: **[TESTING.md](TESTING.md)**.
+329 across both stacks — unit, integration, E2E, real-time SSE, UI, browser and
+performance. Layout, toolchain and the non-obvious traps: **[TESTING.md](TESTING.md)**.
 
 ```bash
-cd backend  && uv run pytest -q       # 211
-cd frontend && bun run test           # 61  (unit + component)
+cd backend  && uv run pytest -q       # 225
+cd frontend && bun run test           # 67  (unit + component)
 cd frontend && bun run test:e2e       # 37  (real browser; bunx playwright install chromium)
 k6 run backend/tests/load_sse_k6.js   # load; http_req_waiting is the TTFT proxy
 ```
-
-### Toolchain
-
-| | | |
-|---|---|---|
-| Runtime + package manager | Bun | `bun install`, `bun run`, `bunx` — no npm/npx anywhere |
-| Framework | Next.js 16 + React 18 | Turbopack is the default bundler |
-| Typecheck | TypeScript 7 (`bun run typecheck`) | The native compiler — what shipped as `tsgo` |
-| Lint + format | Biome (`bun run lint`) | Replaces ESLint and Prettier |
-
-Measured on this repo: build 5.8s → 1.5s, typecheck 0.75s → 0.24s, lint 30ms,
-cold install 12.5s for 317 packages.
-
-`bun.lock` is the only lockfile, and Vercel builds with Bun too
-(`bun install --frozen-lockfile`, `bun run build`). Two lockfiles in one tree is
-also what makes Turbopack unable to infer the project root.
 
 CI runs the backend suite twice — against real Postgres+pgvector, and with no
 database at all — plus a Playwright project that drives the **real** backend with
@@ -192,7 +193,7 @@ production.
 
 ---
 
-## Honest status
+## Known limitations
 
 A portfolio build, not a production clinical system.
 
@@ -213,8 +214,8 @@ A portfolio build, not a production clinical system.
   those two integration points are the least proven in the system.
 - **Corpus poisoning is the main risk.** Anonymous uploads are off by default
   (`ALLOW_ANONYMOUS_UPLOAD=false`); anyone who can upload can write to the corpus
-  every visitor reads from. A poisoned PDF was demonstrated making a live model obey it instead of its
-  instructions. Restating the rules after the retrieved text fixed the original
+  every visitor reads from. A poisoned PDF was demonstrated making a live model
+  obey it instead of its instructions. Restating the rules after the retrieved text fixed the original
   attack, but a reframing still succeeds on some models roughly one run in three —
   prompt-level defence is model-dependent mitigation, not a fix. Citation markers
   are validated and a grounding signal catches fabrication, but neither catches

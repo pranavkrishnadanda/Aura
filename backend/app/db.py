@@ -40,21 +40,21 @@ _chunks: Dict[str, dict] = {}
 SEED_CHUNKS = [
     {
         "id": "chk_001",
-        "doc_id": "doc_fda_2024",
+        "doc_id": "doc_demo_htn",
         "doc_title": "Synthetic Demo — Hypertension Guideline (illustrative)",
         "page": 12,
         "text": "For adults with hypertension and chronic kidney disease, first-line therapy includes ACE inhibitors (e.g., lisinopril 10mg daily) or ARBs. Monitor serum creatinine and potassium within 2-4 weeks of initiation.",
     },
     {
         "id": "chk_002",
-        "doc_id": "doc_fda_2024",
+        "doc_id": "doc_demo_htn",
         "doc_title": "Synthetic Demo — Hypertension Guideline (illustrative)",
         "page": 14,
         "text": "Contraindications for ACE inhibitors include history of angioedema, bilateral renal artery stenosis, and pregnancy. Concomitant use with aliskiren is contraindicated in patients with diabetes.",
     },
     {
         "id": "chk_003",
-        "doc_id": "doc_trial_nct042",
+        "doc_id": "doc_demo_anticoag",
         "doc_title": "Synthetic Demo — Anticoagulation Protocol (illustrative)",
         "page": 42,
         "text": "Enoxaparin 40mg subcutaneously once daily is recommended for VTE prophylaxis in hospitalized COVID-19 patients with D-dimer >3x ULN, unless bleeding risk is high. Efficacy endpoint measured at day 28.",
