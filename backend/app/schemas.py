@@ -5,12 +5,9 @@ from app.config import settings
 
 
 class ChatRequest(BaseModel):
-    # Bound comes from settings so raising MAX_MESSAGE_LENGTH actually takes
-    # effect. It was hardcoded to 4000 here, so Pydantic rejected anything longer
-    # before the endpoint's own MAX_MESSAGE_LENGTH check could ever run, making
-    # that setting dead above 4000 and the endpoint check unreachable.
+    # Bound comes from settings so MAX_MESSAGE_LENGTH is the single source of truth for message size.
     message: str = Field(..., min_length=1, max_length=settings.MAX_MESSAGE_LENGTH, description="User query")
-    thread_id: str = Field(default="default", max_length=100)
+    thread_id: str = Field(..., min_length=1, max_length=100)
     top_k: Optional[int] = Field(default=None, ge=1, le=10)
 
 class Citation(BaseModel):

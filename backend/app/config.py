@@ -58,8 +58,9 @@ class Settings(BaseSettings):
     # attacker writes the source the answer is checked against.
     #
     # Prompt-level defence is mitigation. Not letting strangers write the corpus is
-    # the fix. True is for a closed demo; set False anywhere real.
-    ALLOW_ANONYMOUS_UPLOAD: bool = True
+    # the fix, so the default is False: anonymous uploads would let any visitor
+    # inject instructions into the shared corpus. Set True only for a closed demo.
+    ALLOW_ANONYMOUS_UPLOAD: bool = False
     # Comma-separated API keys accepted when ENABLE_AUTH is true. Enabling auth
     # without setting these fails closed (every request is rejected) rather than
     # silently admitting everyone.

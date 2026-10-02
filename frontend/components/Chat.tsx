@@ -9,20 +9,40 @@ import Drawer from "./Drawer";
 
 /** Per-browser thread id, persisted so a reload resumes the same conversation.
  *
- * This was the literal string "default" for every visitor, and the backend's
- * ChatRequest.thread_id defaults to "default" too -- so every browser shared one
- * conversation and each user saw the others' clinical queries in their history.
+ * The backend requires ChatRequest.thread_id and has no shared fallback, so each
+ * browser must supply its own id; a common value would put every visitor in one
+ * conversation and expose each user's clinical queries in the others' history.
  */
+const THREAD_KEY = "aura.thread_id";
+
+function makeThreadId(): string {
+  return `thr_${Math.random().toString(16).slice(2, 10)}${Date.now().toString(16).slice(-4)}`;
+}
+
+function storeThreadId(id: string) {
+  try {
+    window.localStorage.setItem(THREAD_KEY, id);
+  } catch {}
+}
+
 function initialThreadId(): string {
   if (typeof window === "undefined") return "default"; // SSR pass; replaced on mount
-  const KEY = "aura.thread_id";
-  let id = window.localStorage.getItem(KEY);
+  let id: string | null = null;
+  try {
+    id = window.localStorage.getItem(THREAD_KEY);
+  } catch {}
   if (!id) {
-    id = `thr_${Math.random().toString(16).slice(2, 10)}${Date.now().toString(16).slice(-4)}`;
-    window.localStorage.setItem(KEY, id);
+    id = makeThreadId();
+    storeThreadId(id);
   }
   return id;
 }
+
+/** The backend answers "Thread not found" for a thread owned by another identity.
+ * A stored id can outlive the identity that created it (site data partly cleared,
+ * or a thread created before visitors had per-browser identities), so the chat
+ * starts a fresh thread instead of failing every send until storage is wiped. */
+const THREAD_NOT_FOUND = "Thread not found";
 
 const SUGGESTIONS = [
   "First-line therapy for hypertension with CKD?",
@@ -48,9 +68,12 @@ export default function Chat() {
   const [railOpen, setRailOpen] = useState(false);
   const wakeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Keep the newest message in view: re-run on every messages change, including
+  // each streamed token, even though the body only reads the scroller ref.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: messages is the scroll trigger
   useEffect(() => {
     scroller.current?.scrollTo(0, scroller.current.scrollHeight);
-  }, []);
+  }, [messages]);
 
   useEffect(() => {
     const id = initialThreadId();
@@ -129,10 +152,13 @@ export default function Chat() {
         return copy;
       });
 
-    try {
-      await streamChat(
+    // A stale thread id is detected by the server's 404 and replaced once; a
+    // second "not found" is shown to the user rather than retried in a loop.
+    let staleThread = false;
+    const attempt = (tid: string) =>
+      streamChat(
         q,
-        threadId,
+        tid,
         {
           onMeta: (cits) => {
             stopWaking();
@@ -145,15 +171,31 @@ export default function Chat() {
           },
           onDone: (full, check) =>
             replaceLast({ content: full || acc, citations: metaCites, check }),
-          onError: (e) => replaceLast({ content: `Couldn't complete that: ${e}`, citations: [] }),
+          onError: (e) => {
+            if (e === THREAD_NOT_FOUND && !staleThread) {
+              staleThread = true;
+              return;
+            }
+            replaceLast({ content: `Couldn't complete that: ${e}`, citations: [] });
+          },
         },
         ctrl.signal
       );
+
+    try {
+      await attempt(threadId);
+      if (staleThread && !ctrl.signal.aborted) {
+        const fresh = makeThreadId();
+        storeThreadId(fresh);
+        setSessionThread(fresh);
+        setThreadId(fresh);
+        await attempt(fresh);
+      }
     } catch (e: any) {
       replaceLast({ content: `Couldn't complete that: ${e?.message || e}`, citations: [] });
     } finally {
-      // Always clear, on every path. Previously this lived only inside onDone and
-      // onError, so any throw left the composer disabled permanently.
+      // Cleared on every path, including a throw, so the composer can never be
+      // left disabled.
       stopWaking();
       if (abortRef.current === ctrl) abortRef.current = null;
       setStreaming(false);

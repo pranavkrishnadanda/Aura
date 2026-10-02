@@ -22,9 +22,10 @@ services:
       LLM_PROVIDER: ${LLM_PROVIDER:-mock}
       GROQ_API_KEY: ${GROQ_API_KEY:-}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
-      GROQ_MODEL: ${GROQ_MODEL:-llama3-8b-8192}
-      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-1.5-flash}
+      GROQ_MODEL: ${GROQ_MODEL:-openai/gpt-oss-120b}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-flash-latest}
       RETRIEVAL_THRESHOLD: ${RETRIEVAL_THRESHOLD:-0.85}
+      ALLOW_ANONYMOUS_UPLOAD: ${ALLOW_ANONYMOUS_UPLOAD:-false}
     depends_on:
       db:
         condition: service_healthy

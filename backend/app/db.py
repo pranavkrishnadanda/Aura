@@ -2,7 +2,8 @@
 Production DB: Postgres + pgvector (Supabase) with fallback to in-memory for local dev.
 - Uses SQLAlchemy 2.0 + pgvector
 - If DATABASE_URL unreachable, falls back to in-memory dicts (keeps `docker compose` working without Postgres)
-- Thread/Message/Chunk persisted, encrypted at rest via Supabase (pgsodium)
+- Thread/Message/Chunk stored as plain rows in Postgres via SQLAlchemy, with chunk
+  embeddings in a pgvector column; no application-level encryption is applied
 """
 import uuid, time, json, logging
 from typing import List, Dict, Optional
@@ -34,25 +35,27 @@ _threads: Dict[str, dict] = {}
 _messages: Dict[str, List[dict]] = {}
 _chunks: Dict[str, dict] = {}
 
+# Seed corpus so a fresh install has something to retrieve. It is synthetic and
+# not real clinical guidance.
 SEED_CHUNKS = [
     {
         "id": "chk_001",
         "doc_id": "doc_fda_2024",
-        "doc_title": "FDA Hypertension Guideline 2024",
+        "doc_title": "Synthetic Demo — Hypertension Guideline (illustrative)",
         "page": 12,
         "text": "For adults with hypertension and chronic kidney disease, first-line therapy includes ACE inhibitors (e.g., lisinopril 10mg daily) or ARBs. Monitor serum creatinine and potassium within 2-4 weeks of initiation.",
     },
     {
         "id": "chk_002",
         "doc_id": "doc_fda_2024",
-        "doc_title": "FDA Hypertension Guideline 2024",
+        "doc_title": "Synthetic Demo — Hypertension Guideline (illustrative)",
         "page": 14,
         "text": "Contraindications for ACE inhibitors include history of angioedema, bilateral renal artery stenosis, and pregnancy. Concomitant use with aliskiren is contraindicated in patients with diabetes.",
     },
     {
         "id": "chk_003",
         "doc_id": "doc_trial_nct042",
-        "doc_title": "NCT042 Trial Results — Anticoagulation Protocol",
+        "doc_title": "Synthetic Demo — Anticoagulation Protocol (illustrative)",
         "page": 42,
         "text": "Enoxaparin 40mg subcutaneously once daily is recommended for VTE prophylaxis in hospitalized COVID-19 patients with D-dimer >3x ULN, unless bleeding risk is high. Efficacy endpoint measured at day 28.",
     },
@@ -156,7 +159,7 @@ def chunk_embedding_stats() -> dict:
     """How much of the corpus is actually reachable by vector search.
 
     The pgvector query filters `WHERE embedding IS NOT NULL`, so any chunk stored
-    without an embedding -- including the seeded clinical guidelines, which are
+    without an embedding -- including the synthetic seed documents, which are
     inserted with no embedding at all -- becomes invisible to retrieval the moment
     a single other chunk has one. A mixed corpus therefore silently answers from a
     subset, which is why this is reported rather than left to be discovered.

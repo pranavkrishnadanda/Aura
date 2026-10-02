@@ -27,8 +27,11 @@ services:
       - key: CORS_ORIGINS
         value: https://your-vercel-app.vercel.app
       # Leave false for a public demo; setting it true requires API_KEYS below and
-      # the frontend does not yet send a key.
+      # NEXT_PUBLIC_API_KEY on the frontend, which it sends as X-API-Key.
       - key: ENABLE_AUTH
         value: false
       - key: API_KEYS
         sync: false
+      # Uploads stay closed to anonymous visitors so a public demo cannot be filled with arbitrary documents.
+      - key: ALLOW_ANONYMOUS_UPLOAD
+        value: "false"

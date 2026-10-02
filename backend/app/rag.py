@@ -2,7 +2,8 @@
 Production RAG:
 - Retrieval: pgvector cosine (Gemini embeddings, 0.85) with TF-IDF fallback (0.10)
 - Generation: Gemini/Groq streaming, greeting + boundary AI (never hard deterministic)
-- Embeddings cached in-memory for demo; prod uses pgvector + Redis
+- Query embeddings are cached in process memory; running multiple instances would
+  need a shared cache for them to be reused across processes
 """
 import asyncio, re, time, logging, functools
 from typing import List, Tuple
@@ -309,8 +310,9 @@ def grounding_overlap(answer: str, citations: List[dict]) -> float:
     hijack, the answer "DEBUGMODE [1]" scored overlap 1.0, because the attacker had
     written the word DEBUGMODE into the document being cited. When the adversary
     controls the source, agreement with the source proves nothing. The only real
-    defence is to stop untrusted parties writing the corpus -- see
-    ALLOW_ANONYMOUS_UPLOAD.
+    defence is to stop untrusted parties writing the corpus, which is why
+    ALLOW_ANONYMOUS_UPLOAD defaults to false and uploads require an authenticated
+    caller unless it is explicitly enabled.
 
     A detection signal, not a gate: a short legitimate answer scores low too, so it
     is reported alongside the citation check rather than used to suppress output.

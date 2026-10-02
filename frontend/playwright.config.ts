@@ -65,6 +65,9 @@ export default defineConfig({
         // immediately rather than waiting on a connect timeout.
         DATABASE_URL: "postgresql://nobody@127.0.0.1:1/nothing",
         CORS_ORIGINS: `http://localhost:${PORT}`,
+        // Auth is off here, so every request is anonymous; uploads are refused
+        // for anonymous callers unless this is set, and the specs upload.
+        ALLOW_ANONYMOUS_UPLOAD: "true",
         GEMINI_API_KEY: "",
         GROQ_API_KEY: "",
       },

@@ -91,6 +91,7 @@ cp .env.example .env      # then fill in the values below
 | `GEMINI_API_KEY` | Required for **embeddings**, even when `LLM_PROVIDER=groq` |
 | `GROQ_API_KEY` | Generation only |
 | `DATABASE_URL` | Postgres with the `vector` extension enabled |
+| `ALLOW_ANONYMOUS_UPLOAD` | `false` by default; `true` lets unauthenticated visitors add PDFs (private local demos only) |
 
 A real environment variable **overrides `.env`**. If you export `GEMINI_API_KEY`
 in your shell, editing `.env` will appear to do nothing — `unset` it first.
@@ -118,10 +119,15 @@ tells you so rather than pretending. Interactive API docs: http://localhost:8000
 
 ### Things to try
 
+The demo corpus seeded on first start is synthetic and illustrative, not real
+clinical guidance.
+
 - *"First-line therapy for hypertension with CKD?"* — grounded answer; hover a
   `[1]` marker and its evidence card highlights with it
 - *"what do you know about hair problems"* — refuses, with no citations
-- Upload a PDF from the rail, then ask about its contents
+- Upload a PDF from the rail, then ask about its contents — anonymous uploads are
+  off by default, so start the backend with `ALLOW_ANONYMOUS_UPLOAD=true` for a
+  private local demo
 - Narrow the window below ~768px — the rail becomes a drawer you can drag and flick
 
 ---
@@ -175,8 +181,9 @@ k6 run backend/tests/load_sse_k6.js   # load; http_req_waiting is the TTFT proxy
 Measured on this repo: build 5.8s → 1.5s, typecheck 0.75s → 0.24s, lint 30ms,
 cold install 12.5s for 317 packages.
 
-`bun.lock` is the only lockfile — `package-lock.json` was removed. Two lockfiles
-in one tree is also what made Turbopack unable to infer the project root.
+`bun.lock` is the only lockfile, and Vercel builds with Bun too
+(`bun install --frozen-lockfile`, `bun run build`). Two lockfiles in one tree is
+also what makes Turbopack unable to infer the project root.
 
 CI runs the backend suite twice — against real Postgres+pgvector, and with no
 database at all — plus a Playwright project that drives the **real** backend with
@@ -189,9 +196,12 @@ production.
 
 A portfolio build, not a production clinical system.
 
-- **Auth is off by default.** Every visitor is anonymous and shares one dataset.
-  Set `ENABLE_AUTH=true` with `API_KEYS=...`, plus `NEXT_PUBLIC_API_KEY` on the
-  frontend. That key ships in the public bundle, so it gates a demo, not secrets.
+- **Auth is off by default.** Each browser gets its own anonymous identity (a
+  random id kept in `localStorage` and sent as `X-Anon-Id`), so conversations are
+  not shared between visitors — but that id is not a credential, and the document
+  corpus is shared by everyone. Set `ENABLE_AUTH=true` with `API_KEYS=...`, plus
+  `NEXT_PUBLIC_API_KEY` on the frontend. That key ships in the public bundle, so
+  it gates a demo, not secrets.
 - **Retrieval falls back to keyword matching** unless a Gemini key with quota is
   configured *and* documents were ingested with embeddings. `/health` reports
   which mode is live — trust it over anything written here.
@@ -201,15 +211,16 @@ A portfolio build, not a production clinical system.
   live in process memory.
 - **No test exercises a real LLM or embedding call.** Every provider is mocked, so
   those two integration points are the least proven in the system.
-- **Anyone can write to the corpus by default, and that is the main risk.** A
-  poisoned PDF was demonstrated making a live model obey it instead of its
+- **Corpus poisoning is the main risk.** Anonymous uploads are off by default
+  (`ALLOW_ANONYMOUS_UPLOAD=false`); anyone who can upload can write to the corpus
+  every visitor reads from. A poisoned PDF was demonstrated making a live model obey it instead of its
   instructions. Restating the rules after the retrieved text fixed the original
   attack, but a reframing still succeeds on some models roughly one run in three —
   prompt-level defence is model-dependent mitigation, not a fix. Citation markers
   are validated and a grounding signal catches fabrication, but neither catches
   poisoning, because the attacker writes the source the answer is checked against.
-  **Set `ALLOW_ANONYMOUS_UPLOAD=false` before pointing this at anything real** —
-  that is the only measure that removes the attack rather than reducing it.
+  **Keep `ALLOW_ANONYMOUS_UPLOAD=false` on anything real** — restricting who can
+  upload is the only measure that removes the attack rather than reducing it.
 
 Free-tier behaviour: Render sleeps after 15 minutes idle, so the first request
 takes ~30s (the UI says so rather than appearing hung); Supabase pauses after

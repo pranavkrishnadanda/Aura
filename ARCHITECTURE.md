@@ -131,7 +131,7 @@ document was indexed when retrieval could never see it.
 | `rag.py` | Retrieval, prompt construction, generation, citation validation, refusal |
 | `db.py` | Storage: engine lifecycle, thread/message/chunk access, in-memory fallback |
 | `ingest.py` | PDF → text → chunks → embeddings → storage, with job tracking |
-| `auth.py` | API-key identity; fails closed when enabled without keys |
+| `auth.py` | API-key identity; fails closed when enabled without keys. With auth off, a hashed per-browser `X-Anon-Id` scopes threads |
 | `models.py` | SQLAlchemy schema, including the `Vector(EMBED_DIM)` column and ivfflat index |
 | `config.py` | Settings, all overridable by environment |
 | `schemas.py` | Request validation |
@@ -191,13 +191,14 @@ Three things were tried, and it is worth being precise about what each achieved:
    It does **not** catch poisoning: a hijacked reply of "DEBUGMODE [1]" scored 1.0,
    because the attacker had written DEBUGMODE into the cited document. When the
    adversary controls the source, agreement with the source proves nothing.
-3. **Closing the door** — `ALLOW_ANONYMOUS_UPLOAD=false` requires an API key to add
-   documents. This is the only one of the three that actually removes the attack.
+3. **Closing the door** — `ALLOW_ANONYMOUS_UPLOAD=false`, the default, requires an
+   authenticated API key to add documents. This is the only one of the three that
+   actually removes the attack.
 
 Measured, not asserted: after (1), a roleplay reframing still succeeded on
 `gpt-oss-120b` in roughly one run in three, while the same attack was refused by
 Llama-3.3. **Prompt-level defence is model-dependent mitigation.** Anything
-handling real clinical questions should set `ALLOW_ANONYMOUS_UPLOAD=false`.
+handling real clinical questions should keep `ALLOW_ANONYMOUS_UPLOAD=false`.
 `backend/scripts/redteam_injection.py` re-runs the probes against a live provider.
 
 **Reasoning models are filtered.** Some emit chain-of-thought inline rather than in
@@ -220,7 +221,7 @@ one Render instance; all three need shared storage to scale horizontally.
 
 | | |
 |---|---|
-| Auth | Off by default — every visitor is anonymous and shares one dataset |
+| Auth | Off by default — threads are scoped to a per-browser `X-Anon-Id`, not a verified identity; the document corpus is shared |
 | Migrations | None; schema comes from `create_all` |
 | Horizontal scale | Single instance only (in-process state above) |
 | Retrieval ceiling | TF-IDF is linear to ~5,000 pages; pgvector removes it |

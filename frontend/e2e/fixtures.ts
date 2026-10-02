@@ -12,7 +12,7 @@ const LIVE = !!process.env.E2E_LIVE_API;
 export const SEED_CITATION = {
   id: "chk_001",
   doc_id: "doc_fda_2024",
-  doc_title: "FDA Hypertension Guideline 2024",
+  doc_title: "Synthetic Demo — Hypertension Guideline (illustrative)",
   page: 12,
   chunk_text:
     "For adults with hypertension and chronic kidney disease, first-line therapy includes ACE inhibitors (e.g., lisinopril 10mg daily) or ARBs.",

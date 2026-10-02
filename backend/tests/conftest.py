@@ -39,6 +39,15 @@ def pin_provider_for_tests(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def allow_anonymous_upload_for_tests(monkeypatch):
+    """Let the suite upload without credentials; production defaults to refusing anonymous uploads."""
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "ALLOW_ANONYMOUS_UPLOAD", True)
+    yield
+
+
+@pytest.fixture(autouse=True)
 def reset_inmemory_stores():
     """Isolate the in-memory fallback stores so tests cannot leak state into each other.
 

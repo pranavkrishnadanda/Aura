@@ -36,6 +36,10 @@ export default function () {
   const params = {
     headers: {
       'Content-Type': 'application/json',
+      // One stable visitor identity per VU. With auth off the backend scopes
+      // threads to this id, so each VU owns its own load_<VU> thread rather than
+      // all VUs sharing one anonymous identity. Must match ^[A-Za-z0-9-]{8,64}$.
+      'X-Anon-Id': `k6-load-vu-${__VU}`,
       // Sent only when provided; required if the target has ENABLE_AUTH=true,
       // otherwise the run would just be measuring 401s.
       ...(__ENV.API_KEY ? { 'X-API-Key': __ENV.API_KEY } : {}),

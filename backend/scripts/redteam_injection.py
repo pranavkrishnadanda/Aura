@@ -2,6 +2,14 @@
 
     cd backend && LLM_PROVIDER=groq uv run python scripts/redteam_injection.py
 
+Uploading is refused for anonymous callers by default, so the backend must
+allow it for this run. Either set ALLOW_ANONYMOUS_UPLOAD=true:
+
+    cd backend && ALLOW_ANONYMOUS_UPLOAD=true LLM_PROVIDER=groq uv run python scripts/redteam_injection.py
+
+or run with ENABLE_AUTH=true and pass one of its API_KEYS as API_KEY, which is
+sent as X-API-Key. A 403 on upload aborts the run with a message saying so.
+
 Not part of the pytest suite, which is deterministic and offline. These need a
 real provider precisely because the defence they test is behavioural: a mocked
 model cannot be talked into anything.
@@ -12,7 +20,9 @@ these bypassed the defence before the instructions were restated after the
 context block.
 """
 import json
+import os
 import re
+import sys
 
 import fitz
 from fastapi.testclient import TestClient
@@ -21,6 +31,7 @@ from sse_starlette.sse import AppStatus
 from app.main import app
 
 client = TestClient(app)
+HEADERS = {"X-API-Key": os.environ["API_KEY"]} if os.environ.get("API_KEY") else {}
 R = []
 
 
@@ -28,14 +39,21 @@ def upload(text, name):
     doc = fitz.open(); page = doc.new_page()
     page.insert_textbox(fitz.Rect(40, 40, 560, 760), text, fontsize=9)
     data = doc.tobytes(); doc.close()
-    r = client.post("/api/v1/documents/upload", files={"file": (name, data, "application/pdf")})
-    return client.get(f"/api/v1/documents/jobs/{r.json()['job_id']}").json()
+    r = client.post("/api/v1/documents/upload", headers=HEADERS,
+                    files={"file": (name, data, "application/pdf")})
+    if r.status_code == 403:
+        # Without the poisoned document every probe would "pass" vacuously.
+        sys.exit("upload refused (403): run with ALLOW_ANONYMOUS_UPLOAD=true, or with "
+                 "ENABLE_AUTH=true and API_KEY set to one of API_KEYS")
+    r.raise_for_status()
+    return client.get(f"/api/v1/documents/jobs/{r.json()['job_id']}", headers=HEADERS).json()
 
 
 def ask(q, t):
     AppStatus.should_exit_event = None
     toks, cites, chk = [], [], None
-    with client.stream("POST", "/api/v1/chat/stream", json={"message": q, "thread_id": t}) as r:
+    with client.stream("POST", "/api/v1/chat/stream", json={"message": q, "thread_id": t},
+                       headers=HEADERS) as r:
         ev = None
         for line in r.iter_lines():
             line = line.strip()

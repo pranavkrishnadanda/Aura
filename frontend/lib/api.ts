@@ -1,9 +1,7 @@
 export const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
-/** Optional API key, sent when the backend runs with ENABLE_AUTH=true.
- *
- * No request sent any credential before this, so turning auth on server-side made
- * every call 401 and the UI simply stopped working with no indication why.
+/** Optional API key, sent when the backend runs with ENABLE_AUTH=true so that
+ * turning auth on server-side does not leave every call failing with a 401.
  *
  * NEXT_PUBLIC_* is inlined into the client bundle and therefore public: this is
  * only appropriate for a demo key. A real deployment needs a session/token flow
@@ -11,8 +9,35 @@ export const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000
  */
 const API_KEY = process.env.NEXT_PUBLIC_API_KEY || "";
 
+const ANON_ID_KEY = "aura.anon_id";
+let memoryAnonId: string | null = null;
+
+/** Per-browser visitor id, sent as X-Anon-Id on every request.
+ *
+ * With ENABLE_AUTH=false the backend derives a per-visitor user id from this
+ * header, so one visitor's threads are not readable by another. It is generated
+ * once and kept in localStorage; when storage is unavailable (private mode,
+ * blocked site data) an in-memory id is used for the life of the page instead.
+ * It is an identifier, not a credential: it scopes data between visitors of a
+ * demo, it does not authenticate anyone.
+ */
+export function anonId(): string {
+  try {
+    const stored = localStorage.getItem(ANON_ID_KEY);
+    if (stored) return stored;
+    const id = crypto.randomUUID();
+    localStorage.setItem(ANON_ID_KEY, id);
+    return id;
+  } catch {
+    if (!memoryAnonId) memoryAnonId = crypto.randomUUID();
+    return memoryAnonId;
+  }
+}
+
 export function authHeaders(): Record<string, string> {
-  return API_KEY ? { "X-API-Key": API_KEY } : {};
+  const headers: Record<string, string> = { "X-Anon-Id": anonId() };
+  if (API_KEY) headers["X-API-Key"] = API_KEY;
+  return headers;
 }
 
 export type StreamCallbacks = {
