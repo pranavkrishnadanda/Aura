@@ -41,15 +41,32 @@ export default function AdminUpload({
         body: fd,
         headers: authHeaders(),
       });
-      const j = await r.json();
-      if (!r.ok) {
-        setStatus(`Error: ${j.detail || JSON.stringify(j)}`);
+      // 403 means this deployment refuses uploads from the caller's tier. With
+      // auth off every caller is anonymous, so the server's "requires an API key"
+      // detail would point the visitor at something they cannot do.
+      if (r.status === 403) {
+        setStatus(
+          "Uploads are disabled on this deployment. Adding documents requires an authorised API key."
+        );
         return;
       }
-      // Upload only enqueues work. The response carries {job_id, status, filename,
-      // bytes} -- reading doc_title/pages/chunks off it rendered
-      // "undefined - undefined pages - undefined chunks indexed" on every success,
-      // while a failure in the background task was never surfaced at all.
+      if (!r.ok) {
+        // Error bodies are not guaranteed to be JSON (a proxy 413 or 502 returns
+        // HTML), so fall back to the status code rather than a parse error.
+        let detail = `HTTP ${r.status}`;
+        try {
+          const j = await r.json();
+          if (j?.detail)
+            detail = typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail);
+        } catch {
+          // keep the status-code fallback
+        }
+        setStatus(`Error: ${detail}`);
+        return;
+      }
+      // Upload only enqueues work: the response carries {job_id, status, filename,
+      // bytes}. Document stats and background-task failures come from polling the job.
+      const j = await r.json();
       await pollJob(j.job_id, j.filename);
     } catch (err: any) {
       setStatus(`Error: ${err.message}`);

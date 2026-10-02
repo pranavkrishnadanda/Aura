@@ -51,7 +51,7 @@ def parse_sse(raw_text: str):
     return events
 
 
-def stream_events(message, thread_id):
+def stream_raw(message, thread_id):
     AppStatus.should_exit_event = None
     with client.stream(
         "POST", "/api/v1/chat/stream", json={"message": message, "thread_id": thread_id}
@@ -59,6 +59,11 @@ def stream_events(message, thread_id):
         status = r.status_code
         content_type = r.headers.get("content-type", "")
         raw = r.read().decode()
+    return status, content_type, raw
+
+
+def stream_events(message, thread_id):
+    status, content_type, raw = stream_raw(message, thread_id)
     return status, content_type, parse_sse(raw)
 
 
@@ -73,15 +78,21 @@ def test_generation_failure_mid_stream_emits_error_event_and_terminates(monkeypa
 
     monkeypatch.setattr(main, "generate_answer", failing_generate_answer)
 
-    status, content_type, events = stream_events(
+    status, content_type, raw = stream_raw(
         "First-line therapy for hypertension with CKD?", "fail_midstream_thread"
     )
+    events = parse_sse(raw)
 
     assert status == 200
     names = [n for n, _ in events]
     assert "error" in names
     error_data = dict(events)["error"]
-    assert "boom: provider exploded" in error_data["detail"]
+    assert error_data["code"] == "generation_failed"
+    assert error_data["detail"] == "The answer could not be generated. Please try again."
+
+    # Provider exception text stays in the server log; the client only ever
+    # sees the generic message, so internals cannot leak through the stream.
+    assert "boom" not in raw
 
     # The stream must still terminate cleanly -- done and heartbeat still fire,
     # proving the generator did not just die without closing out the response.

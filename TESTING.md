@@ -54,6 +54,12 @@ that, adding a real key silently switched every generation to a live API call â€
 assertions on mock output began failing and runs started costing quota. A test
 wanting a real or fake provider sets it explicitly.
 
+**The suite uploads anonymously on purpose.** `ALLOW_ANONYMOUS_UPLOAD` defaults to
+`false`, so an autouse fixture in `conftest` turns it on for each test and restores
+it afterwards; a dedicated test asserts the shipped default stays `false`. CI's
+Playwright job starts its backend with `ALLOW_ANONYMOUS_UPLOAD=true` for the same
+reason.
+
 **Adversarial probes are deliberately not in the suite.** The injection defence is
 behavioural, and a mocked model cannot be talked into anything, so proving it
 needs a real provider:

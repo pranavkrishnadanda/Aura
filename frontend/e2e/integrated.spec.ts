@@ -22,7 +22,7 @@ test.describe("frontend and backend agree", () => {
       .fill("What is first-line therapy for hypertension with CKD?");
     await page.getByRole("button", { name: "Send" }).click();
 
-    // Content comes from the backend's seeded FDA chunk, not a fixture.
+    // Content comes from the backend's seeded hypertension chunk, not a fixture.
     await expect(page.getByText(/ACE inhibitors/).first()).toBeVisible({ timeout: 20_000 });
 
     // The citation payload the API sends must be renderable: the marker resolves,
@@ -32,7 +32,9 @@ test.describe("frontend and backend agree", () => {
 
     const card = page.getByTestId("citation-panel").first();
     await expect(card).toBeVisible();
-    await expect(card.getByText(/FDA Hypertension Guideline/)).toBeVisible();
+    await expect(
+      card.getByText(/Synthetic Demo — Hypertension Guideline \(illustrative\)/)
+    ).toBeVisible();
     await expect(card.getByText(/^p\.\d+$/)).toBeVisible();
 
     // No marker may point at a source that does not exist. This is the check that

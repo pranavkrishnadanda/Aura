@@ -53,7 +53,7 @@ request wakes it. Everything you ingested survives.
    | `GEMINI_API_KEY` | your key — **required for embeddings even if `LLM_PROVIDER=groq`** |
    | `CORS_ORIGINS` | your Vercel URL, added in step 3 |
    | `LOG_QUERIES` | `false` |
-   | `ALLOW_ANONYMOUS_UPLOAD` | `false` for anything real — see below |
+   | `ALLOW_ANONYMOUS_UPLOAD` | `false` (the default, and what `render.yaml` sets) — see below |
 
 4. Deploy, then **verify it is really on Postgres**:
    ```bash
@@ -132,13 +132,15 @@ its own instructions. The prompt is hardened against this and it stops most
 attempts, but the defence proved model-dependent — the same reframing that one
 model refused, another obeyed.
 
-If this deployment is reachable by anyone you do not trust, set
-`ALLOW_ANONYMOUS_UPLOAD=false` and add documents with an API key. That is the only
-measure that removes the attack rather than reducing its odds.
+If this deployment is reachable by anyone you do not trust, keep
+`ALLOW_ANONYMOUS_UPLOAD=false` (the default) and add documents with an API key.
+That is the only measure that removes the attack rather than reducing its odds.
+With it off, uploading requires `ENABLE_AUTH=true` and a key from `API_KEYS`.
 
 ## Enabling auth
 
-Off by default — every visitor is anonymous and shares one dataset, which is fine
-for a public demo. To turn it on, set `ENABLE_AUTH=true` and `API_KEYS=key1,key2`
+Off by default — every visitor is anonymous. Each browser sends its own random
+`X-Anon-Id`, so conversation threads are private to that browser, while the
+document corpus is shared by everyone, which is fine for a public demo. To turn it on, set `ENABLE_AUTH=true` and `API_KEYS=key1,key2`
 on Render, and `NEXT_PUBLIC_API_KEY` on Vercel. Note the frontend key ships inside
 the public JS bundle, so it is a demo gate, not a real secret.

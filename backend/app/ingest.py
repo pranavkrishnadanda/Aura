@@ -1,5 +1,9 @@
 """
-Production ingest: PyMuPDF + tiktoken chunking + Gemini embeddings + pgvector
+Ingest: PyMuPDF text extraction + word-window chunking + Gemini embeddings + pgvector.
+
+Each page's text is split on whitespace into windows of CHUNK_SIZE words
+(default 600) that overlap by CHUNK_OVERLAP words (default 100); windows of 50
+characters or fewer are dropped. Chunks without an embedding fall back to TF-IDF.
 Runs as FastAPI BackgroundTasks so 100-page PDF never blocks request.
 """
 import uuid, time, logging

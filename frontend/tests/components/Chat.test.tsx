@@ -192,6 +192,58 @@ describe("Chat - sending a message", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "Send" })).toBeDisabled());
   });
 
+  it("scrolls the transcript again as streamed tokens arrive, not only on mount", async () => {
+    // The auto-scroll effect is keyed on `messages`, so every streamed token
+    // must re-pin the transcript to the bottom. A mount-only effect would call
+    // scrollTo once and then let the answer grow out of view.
+    const scrollTo = vi.fn();
+    const original = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollTo");
+    HTMLElement.prototype.scrollTo = scrollTo;
+    try {
+      const ctrl = controlledSSE();
+      const fetchMock = makeFetch({
+        chatStream: () =>
+          ({
+            ok: true,
+            status: 200,
+            body: ctrl.stream,
+            headers: new Headers(),
+            json: async () => ({}),
+          }) as Response,
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      const user = userEvent.setup();
+      render(<Chat />);
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+
+      await user.type(screen.getByPlaceholderText(PLACEHOLDER), "question");
+      await user.click(screen.getByRole("button", { name: "Send" }));
+      await screen.findByText("question");
+
+      const beforeTokens = scrollTo.mock.calls.length;
+      await act(async () => ctrl.push(frame("meta", { citations: [], is_refusal: false })));
+      await act(async () => ctrl.push(frame("token", { token: "Streamed" })));
+      expect(await screen.findByText("Streamed")).toBeInTheDocument();
+      const afterFirstToken = scrollTo.mock.calls.length;
+      expect(afterFirstToken).toBeGreaterThan(beforeTokens);
+
+      await act(async () => ctrl.push(frame("token", { token: " answer" })));
+      expect(await screen.findByText("Streamed answer")).toBeInTheDocument();
+      expect(scrollTo.mock.calls.length).toBeGreaterThan(afterFirstToken);
+
+      await act(async () => {
+        ctrl.push(frame("done", { full_text: "Streamed answer" }));
+        ctrl.close();
+      });
+    } finally {
+      if (original) {
+        Object.defineProperty(HTMLElement.prototype, "scrollTo", original);
+      } else {
+        delete (HTMLElement.prototype as any).scrollTo;
+      }
+    }
+  });
+
   it("disables Send while input is empty or whitespace-only", async () => {
     const fetchMock = makeFetch();
     vi.stubGlobal("fetch", fetchMock);

@@ -1,7 +1,7 @@
 {
   "framework": "nextjs",
-  "buildCommand": "npm run build",
+  "buildCommand": "bun run build",
   "outputDirectory": ".next",
-  "installCommand": "npm install",
+  "installCommand": "bun install --frozen-lockfile",
   "git": { "deploymentEnabled": { "main": true } }
 }

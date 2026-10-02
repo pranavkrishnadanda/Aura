@@ -41,7 +41,7 @@ app.add_middleware(
     allow_origins=origins or ["*"],
     allow_credentials=bool(origins),
     allow_methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["Content-Type", "Accept", "X-API-Key"],
+    allow_headers=["Content-Type", "Accept", "X-API-Key", "X-Anon-Id"],
     expose_headers=["X-Response-Time"],
 )
 
@@ -106,17 +106,17 @@ def post_thread(request: Request, body: ThreadCreate, user=Depends(get_current_u
     return create_thread(body.title or "New consultation", user_id=user["user_id"])
 
 def _assert_thread_access(thread_id: str, user: dict) -> dict:
-    """Fetch a thread, enforcing ownership when auth is on.
+    """Fetch a thread, enforcing ownership whether or not auth is on.
 
-    This endpoint previously had no ownership check whatsoever, so any caller could
-    read any conversation by naming its id -- and ids are only 8 hex characters.
-    A 404 (not 403) is returned for someone else's thread so the endpoint does not
-    confirm which ids exist.
+    With auth off, each browser still carries its own identity (derived from its
+    X-Anon-Id header), so one visitor cannot read another's conversation by naming
+    its id. A 404 (not 403) is returned for someone else's thread so the endpoint
+    does not confirm which ids exist. Threads with no recorded owner stay readable.
     """
     t = get_thread(thread_id)
     if not t:
         raise HTTPException(404, "Thread not found")
-    if settings.ENABLE_AUTH and t.get("user_id") not in (user["user_id"], None):
+    if t.get("user_id") not in (user["user_id"], None):
         raise HTTPException(404, "Thread not found")
     return t
 
@@ -283,9 +283,11 @@ async def chat_stream(request: Request, body: ChatRequest, user=Depends(get_curr
         except asyncio.CancelledError:
             logger.info(f"stream cancelled {body.thread_id}")
             raise
-        except Exception as e:
-            logger.error(f"stream error: {e}")
-            yield {"event": "error", "data": json.dumps({"detail": str(e)})}
+        except Exception:
+            # The exception text can carry provider URLs, keys or internals, so it
+            # goes to the log only; the client gets a stable code and message.
+            logger.exception("stream error thread=%s", body.thread_id)
+            yield {"event": "error", "data": json.dumps({"code": "generation_failed", "detail": "The answer could not be generated. Please try again."})}
         # Verify the grounding claim instead of trusting it.
         #
         # The product's promise is that every statement is traceable to a source,

@@ -373,3 +373,52 @@ def test_anonymous_upload_can_be_refused(monkeypatch):
     monkeypatch.setattr(settings, "ALLOW_ANONYMOUS_UPLOAD", True)
     r = client.post("/api/v1/documents/upload", files={"file": ("a.pdf", pdf, "application/pdf")})
     assert r.status_code != 403
+
+
+def test_anonymous_upload_is_off_by_default(monkeypatch):
+    """The shipped default must keep strangers out of the shared corpus.
+
+    conftest turns uploads on for the suite, so this checks the class default on a
+    fresh Settings, with no env var or .env file able to override it.
+    """
+    from app.config import Settings
+
+    monkeypatch.delenv("ALLOW_ANONYMOUS_UPLOAD", raising=False)
+    assert Settings(_env_file=None).ALLOW_ANONYMOUS_UPLOAD is False
+
+
+# ---- Per-visitor isolation with auth off ----
+
+_ANON_A = {"X-Anon-Id": "visitor-aaaa-1111"}
+_ANON_B = {"X-Anon-Id": "visitor-bbbb-2222"}
+
+
+def test_threads_are_isolated_per_anon_id_when_auth_is_off(monkeypatch):
+    """With ENABLE_AUTH off, X-Anon-Id is the only thing separating one visitor's
+    clinical conversation from another's, so ownership must still be enforced."""
+    monkeypatch.setattr(settings, "ENABLE_AUTH", False)
+
+    tid = client.post("/api/v1/threads", json={"title": "private"}, headers=_ANON_A).json()["id"]
+
+    listed_a = [t["id"] for t in client.get("/api/v1/threads", headers=_ANON_A).json()]
+    listed_b = [t["id"] for t in client.get("/api/v1/threads", headers=_ANON_B).json()]
+    assert tid in listed_a
+    assert tid not in listed_b
+
+    assert client.get(f"/api/v1/threads/{tid}/messages", headers=_ANON_A).status_code == 200
+    r = client.get(f"/api/v1/threads/{tid}/messages", headers=_ANON_B)
+    assert r.status_code == 404
+    assert r.json()["detail"] == "Thread not found"
+
+    # Writing goes through the same check: B must not be able to append to, or
+    # seed, A's history by naming A's thread id in a chat request.
+    r = client.post("/api/v1/chat/stream", json={"message": "hi", "thread_id": tid}, headers=_ANON_B)
+    assert r.status_code == 404
+    assert r.json()["detail"] == "Thread not found"
+
+
+def test_chat_stream_without_thread_id_is_rejected_with_422():
+    """A shared default thread id would pool every visitor into one conversation,
+    so the client must always name its own thread."""
+    r = client.post("/api/v1/chat/stream", json={"message": "hi"})
+    assert r.status_code == 422

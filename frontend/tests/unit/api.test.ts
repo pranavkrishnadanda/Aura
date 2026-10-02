@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { StreamCallbacks } from "@/lib/api";
-import { authHeaders, streamChat } from "@/lib/api";
+import { anonId, authHeaders, streamChat } from "@/lib/api";
 import { frame, sseResponse, sseStream } from "../setup";
 
 /** Build a fresh set of spy callbacks for one streamChat() call. */
@@ -299,7 +299,58 @@ describe("streamChat", () => {
 });
 
 describe("authHeaders", () => {
-  it("returns an empty object when no API key is configured", () => {
-    expect(authHeaders()).toEqual({});
+  it("sends only X-Anon-Id when no API key is configured", () => {
+    expect(authHeaders()).toEqual({ "X-Anon-Id": anonId() });
+  });
+
+  it("generates an id the backend accepts and persists it under aura.anon_id", () => {
+    const id = authHeaders()["X-Anon-Id"];
+    // Must satisfy the backend's ^[A-Za-z0-9-]{8,64}$ check, or the visitor
+    // falls back to the shared anonymous user.
+    expect(id).toMatch(/^[A-Za-z0-9-]{8,64}$/);
+    expect(localStorage.getItem("aura.anon_id")).toBe(id);
+  });
+
+  it("returns the same id on every call", () => {
+    const first = authHeaders()["X-Anon-Id"];
+    expect(authHeaders()["X-Anon-Id"]).toBe(first);
+    expect(anonId()).toBe(first);
+  });
+
+  it("reuses an id already stored in localStorage", () => {
+    localStorage.setItem("aura.anon_id", "existing-visitor-id");
+    expect(authHeaders()["X-Anon-Id"]).toBe("existing-visitor-id");
+    expect(localStorage.getItem("aura.anon_id")).toBe("existing-visitor-id");
+  });
+
+  it("falls back to a stable in-memory id when localStorage throws", () => {
+    const broken = {
+      getItem: () => {
+        throw new Error("blocked");
+      },
+      setItem: () => {
+        throw new Error("blocked");
+      },
+    } as unknown as Storage;
+    vi.stubGlobal("localStorage", broken);
+    Object.defineProperty(window, "localStorage", {
+      value: broken,
+      configurable: true,
+      writable: true,
+    });
+
+    const first = anonId();
+    expect(first).toMatch(/^[A-Za-z0-9-]{8,64}$/);
+    expect(anonId()).toBe(first);
+  });
+
+  it("is sent on chat requests", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(sseResponse([frame("done", { full_text: "" })]));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await streamChat("hi", "t1", makeCbs());
+
+    const init = fetchMock.mock.calls[0][1] as RequestInit;
+    expect((init.headers as Record<string, string>)["X-Anon-Id"]).toBe(anonId());
   });
 });

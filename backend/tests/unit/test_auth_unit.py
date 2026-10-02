@@ -165,3 +165,83 @@ async def test_get_current_user_good_key_returns_authenticated(monkeypatch):
     result = await get_current_user(x_api_key="goodkey")
     assert result["tier"] == "authenticated"
     assert result["user_id"] == _user_id_for("goodkey")
+
+
+# ---- per-visitor anonymous identity (X-Anon-Id) ----
+
+_VALID_ANON_ID = "3f2b8c1e-9a4d-4e6f-b1c2-7d8e9f0a1b2c"
+
+
+@pytest.mark.unit
+async def test_anon_id_yields_hashed_anonymous_identity(monkeypatch):
+    monkeypatch.setattr(settings, "ENABLE_AUTH", False)
+    result = await get_current_user(x_api_key=None, x_anon_id=_VALID_ANON_ID)
+    assert result["tier"] == "anonymous"
+    user_id = result["user_id"]
+    assert user_id.startswith("anon_")
+    suffix = user_id[len("anon_"):]
+    assert len(suffix) == 16
+    assert all(c in "0123456789abcdef" for c in suffix)
+    # The raw client id is hashed, never stored verbatim.
+    assert _VALID_ANON_ID not in user_id
+
+
+@pytest.mark.unit
+async def test_anon_id_is_stable_for_same_id(monkeypatch):
+    monkeypatch.setattr(settings, "ENABLE_AUTH", False)
+    first = await get_current_user(x_api_key=None, x_anon_id=_VALID_ANON_ID)
+    second = await get_current_user(x_api_key=None, x_anon_id=_VALID_ANON_ID)
+    assert first["user_id"] == second["user_id"]
+
+
+@pytest.mark.unit
+async def test_anon_id_differs_per_visitor(monkeypatch):
+    monkeypatch.setattr(settings, "ENABLE_AUTH", False)
+    a = await get_current_user(x_api_key=None, x_anon_id="visitor-aaaa-1111")
+    b = await get_current_user(x_api_key=None, x_anon_id="visitor-bbbb-2222")
+    assert a["user_id"] != b["user_id"]
+    assert a["user_id"] != ANONYMOUS["user_id"]
+    assert b["user_id"] != ANONYMOUS["user_id"]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "bad_id",
+    [
+        "short",  # under 8 chars
+        "has spaces in it",
+        "path/traversal-id",
+        "a" * 65,  # over 64 chars
+        "",
+    ],
+)
+async def test_malformed_anon_id_falls_back_to_anonymous(monkeypatch, bad_id):
+    monkeypatch.setattr(settings, "ENABLE_AUTH", False)
+    result = await get_current_user(x_api_key=None, x_anon_id=bad_id)
+    assert result == ANONYMOUS
+
+
+@pytest.mark.unit
+async def test_anon_id_length_bounds_are_inclusive(monkeypatch):
+    monkeypatch.setattr(settings, "ENABLE_AUTH", False)
+    for ok_id in ("a" * 8, "a" * 64):
+        result = await get_current_user(x_api_key=None, x_anon_id=ok_id)
+        assert result["user_id"].startswith("anon_")
+
+
+@pytest.mark.unit
+async def test_anon_id_ignored_when_auth_enabled_without_key(monkeypatch):
+    """With auth enforced, X-Anon-Id must not stand in for an API key."""
+    monkeypatch.setattr(settings, "ENABLE_AUTH", True)
+    monkeypatch.setattr(settings, "API_KEYS", "goodkey")
+    with pytest.raises(HTTPException) as exc_info:
+        await get_current_user(x_api_key=None, x_anon_id=_VALID_ANON_ID)
+    assert exc_info.value.status_code == 401
+
+
+@pytest.mark.unit
+async def test_anon_id_ignored_when_auth_enabled_with_key(monkeypatch):
+    monkeypatch.setattr(settings, "ENABLE_AUTH", True)
+    monkeypatch.setattr(settings, "API_KEYS", "goodkey")
+    result = await get_current_user(x_api_key="goodkey", x_anon_id=_VALID_ANON_ID)
+    assert result == {"user_id": _user_id_for("goodkey"), "tier": "authenticated"}
