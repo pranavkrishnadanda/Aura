@@ -11,7 +11,7 @@ const LIVE = !!process.env.E2E_LIVE_API;
 
 export const SEED_CITATION = {
   id: "chk_001",
-  doc_id: "doc_fda_2024",
+  doc_id: "doc_demo_htn",
   doc_title: "Synthetic Demo — Hypertension Guideline (illustrative)",
   page: 12,
   chunk_text:
