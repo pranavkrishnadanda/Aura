@@ -229,6 +229,10 @@ about a week of inactivity and wakes on the next request.
 
 ---
 
+## How it was built
+
+Designed and directed by Pranav Krishna Danda. Much of the code was written with AI coding agents (Claude) under that design; every change was checked by the test suite and CI.
+
 ## Not medical advice
 
 A reference tool for exploring indexed documents. Not a diagnosis, and not a
